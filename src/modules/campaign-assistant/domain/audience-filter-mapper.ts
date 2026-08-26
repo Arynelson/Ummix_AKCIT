@@ -175,8 +175,8 @@ export function inferNaturalAudienceFilters(
 
     if (
       field === 'gender' &&
-      ((wantsFemale && /femin|mulher/.test(optionText)) ||
-        (wantsMale && /mascul|homem/.test(optionText)))
+      ((wantsFemale && /femin|mulher|female|^f$/.test(optionText)) ||
+        (wantsMale && /mascul|homem|male|^m$/.test(optionText)))
     ) {
       inferred.push({
         questionId: option.questionId,
@@ -303,12 +303,16 @@ function canonicalizeValue(field: AudienceField, value: string): string | null {
 }
 
 function canonicalAge(value: string): string | null {
+  const normalized = normalize(value);
   const numbers = parseNumbers(value);
+  if (/menor\s+de\s+18/.test(normalized)) return 'Menor de 18';
   if (numbers.length >= 2) {
     const range = AGE_RANGES.find((item) => item.min === numbers[0] && item.max === numbers[1]);
     return range?.value ?? `${numbers[0]}-${numbers[1]}`;
   }
-  if (numbers.length === 1 && /(mais|acima|60\+|60 anos)/.test(normalize(value))) return '60+';
+  if (numbers.length === 1 && /(mais|acima|\+)/.test(normalized)) {
+    return `${numbers[0]}+`;
+  }
   return null;
 }
 
@@ -366,7 +370,9 @@ function parseAgeConstraint(
 }
 
 function parseAgeRange(value: string): { min: number; max: number } | null {
+  const normalized = normalize(value);
   const numbers = parseNumbers(value);
+  if (/menor\s+de\s+18/.test(normalized)) return { min: 0, max: 17 };
   if (numbers.length >= 2) {
     return { min: numbers[0]!, max: numbers[1]! };
   }

@@ -511,6 +511,13 @@ export function buildAudienceDemographics(state: CampaignState) {
 }
 
 function parseAudienceAgeRange(value: string): { min: number; max: number } | null {
+  const normalized = value
+    .normalize('NFD')
+    .replace(/\p{Diacritic}/gu, '')
+    .toLocaleLowerCase('pt-BR');
+  if (/menor\s+de\s+18/.test(normalized)) {
+    return { min: 0, max: 17 };
+  }
   const numbers = value.match(/\d+/g)?.map(Number) ?? [];
   if (numbers.length >= 2 && numbers[0] !== undefined && numbers[1] !== undefined) {
     return { min: numbers[0], max: numbers[1] };

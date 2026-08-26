@@ -210,16 +210,26 @@ export class AssistantService {
           referenceDate,
         });
         const validatedPatch = validateAudiencePatch(patch, audienceCatalog);
-        const inferredFilters = patch.audienceDescription?.trim()
+        const isAudienceTurn =
+          currentField === 'audienceDescription' ||
+          currentField === 'audienceConfirmation' ||
+          Boolean(patch.audienceDescription?.trim());
+        const inferredFilters = isAudienceTurn
           ? inferNaturalAudienceFilters(input.message, audienceCatalog)
           : [];
         const audienceFilters = dedupeAudienceFilters([
           ...(validatedPatch.audienceFilters ?? []),
           ...inferredFilters,
         ]);
+        const audienceDescription = patch.audienceDescription?.trim()
+          || (isAudienceTurn ? input.message.trim().slice(0, 500) : '');
         const enrichedPatch: ValidatedCampaignPatch = {
           ...validatedPatch,
-          ...(patch.audienceDescription?.trim() ? { audienceFilters } : {}),
+          ...(audienceDescription
+            ? { audienceDescription, audienceFilters }
+            : audienceFilters.length > 0
+              ? { audienceFilters }
+              : {}),
           ...(audienceFilters.length > 0 ? { audienceAlternatives: [] } : {}),
         };
         nextState = applyExtractedPatch(nextState, enrichedPatch);
@@ -635,6 +645,9 @@ function buildCampaignPayload(
     brandName:
       state.objective === 'reconhecimento_marca'
         ? state.productService
+          || session.clientSnapshot.companyBrand
+          || session.clientSnapshot.companyName
+          || undefined
         : session.clientSnapshot.companyBrand ?? session.clientSnapshot.companyName ?? undefined,
     objective: state.objective,
     startDate: state.desiredStartDate,

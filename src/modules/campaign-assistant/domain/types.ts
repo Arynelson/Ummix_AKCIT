@@ -173,7 +173,6 @@ export interface ValidatedCampaignPatch
 }
 
 export type MissingField =
-  | 'productService'
   | 'objective'
   | 'location'
   | 'audienceDescription'

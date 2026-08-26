@@ -53,6 +53,25 @@ describe('Ummix audience impact payload', () => {
       },
     ]);
   });
+
+  it('preserves the Services lower age band in native demographics', () => {
+    expect(
+      buildAudienceDemographics({
+        locations: [{ cityId: 'city-id', cityName: 'Goiânia', stateUf: 'GO' }],
+        audienceFilters: [
+          {
+            questionId: 'age-question',
+            question: 'Faixa etária',
+            optionId: 'age-under-18',
+            option: 'Menor de 18',
+          },
+        ],
+      } as CampaignState),
+    ).toEqual({
+      cidade: ['city-id'],
+      faixasEtarias: [{ min: 0, max: 17 }],
+    });
+  });
 });
 
 describe('Ummix audience catalog', () => {

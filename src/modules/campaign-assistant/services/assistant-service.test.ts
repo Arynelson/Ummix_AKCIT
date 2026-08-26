@@ -204,6 +204,8 @@ describe('AssistantService finalization', () => {
       ...initialState(100, 'varejo', [location]),
       productService: 'Clínica',
       objective: 'reconhecimento_marca' as const,
+      location,
+      locations: [location],
     };
     const session = {
       id: '93203443-1fe8-45d0-a90d-8ec96ba8042f',
@@ -254,7 +256,7 @@ describe('AssistantService finalization', () => {
       extract: vi.fn().mockResolvedValue({
         productService: null,
         objective: null,
-        audienceDescription: 'Mulheres adultas',
+        audienceDescription: null,
         audienceFilters: [
           {
             questionId: '11111111-1111-4111-8111-111111111111',
@@ -290,9 +292,10 @@ describe('AssistantService finalization', () => {
         role: 'user',
         userType: 'regular_client',
       },
-      message: 'Mulheres adultas',
+      message: 'Mulheres',
     });
 
+    expect(savedState.audienceDescription).toBe('Mulheres');
     expect(savedState.audienceFilters).toEqual([
       {
         questionId: '11111111-1111-4111-8111-111111111111',

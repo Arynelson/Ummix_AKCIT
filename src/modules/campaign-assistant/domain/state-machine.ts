@@ -128,7 +128,6 @@ export function missingFields(state: CampaignState): MissingField[] {
   const missing: MissingField[] = [];
   if (!state.objective) missing.push('objective');
   if (campaignLocations(state).length === 0) missing.push('location');
-  if (!state.productService) missing.push('productService');
   if (!state.audienceDescription) missing.push('audienceDescription');
   if (state.audienceClarification) missing.push('audienceConfirmation');
   if (state.maximumBudget === null || state.maximumBudget < state.minimumInvestment) {
@@ -147,7 +146,6 @@ export function missingFields(state: CampaignState): MissingField[] {
 
 export function canCalculateComparison(state: CampaignState): boolean {
   return Boolean(
-    state.productService &&
     state.objective &&
     campaignLocations(state).length > 0 &&
     state.audienceDescription &&
@@ -227,21 +225,6 @@ export function nextAssistantTurn(
       message: hasOptions
         ? `${locationHint}Seu negócio ou comércio fica ou atende clientes em uma ou mais destas cidades? Selecione as praças disponíveis e confirme.`
         : `${locationHint}Em qual cidade está o público da campanha?`,
-      quickReplies: [],
-    };
-  }
-  if (!state.productService) {
-    if (state.objective === 'reconhecimento_marca') {
-      return {
-        message: 'Qual o nome da marca que deseja divulgar?',
-        quickReplies: [],
-      };
-    }
-    const clientPrefix = options.clientName
-      ? `Vamos montar uma campanha para ${options.clientName}. `
-      : '';
-    return {
-      message: `${clientPrefix}Qual produto ou serviço você quer divulgar nesta campanha?`,
       quickReplies: [],
     };
   }

@@ -60,7 +60,7 @@ describe('campaign assistant state machine', () => {
     ]);
   });
 
-  it('asks for the city after the objective and before the product', () => {
+  it('asks for the city after the objective and then asks for the audience', () => {
     const option = { cityId: 'city', cityName: 'Goiânia', stateUf: 'GO' };
     const state = {
       ...initialState(100, 'varejo', [option]),
@@ -77,12 +77,12 @@ describe('campaign assistant state machine', () => {
       location: option,
       locations: [option],
     };
-    const productTurn = nextAssistantTurn(afterCity, { clientName: 'Empresa' });
-    expect(productTurn.message).toBe('Qual o nome da marca que deseja divulgar?');
-    expect(productTurn.quickReplies).toEqual([]);
+    const audienceTurn = nextAssistantTurn(afterCity, { clientName: 'Empresa' });
+    expect(audienceTurn.message).toBe('Como você descreveria o público que deseja alcançar em uma frase?');
+    expect(audienceTurn.quickReplies).toEqual([]);
   });
 
-  it('asks for product or service when the objective is not brand recognition', () => {
+  it('does not ask for product or service in the campaign assistant', () => {
     const option = { cityId: 'city', cityName: 'Goiânia', stateUf: 'GO' };
     const state = {
       ...initialState(100, 'varejo', [option]),
@@ -92,7 +92,7 @@ describe('campaign assistant state machine', () => {
     };
 
     expect(nextAssistantTurn(state, { clientName: 'Empresa' }).message).toBe(
-      'Vamos montar uma campanha para Empresa. Qual produto ou serviço você quer divulgar nesta campanha?',
+      'Como você descreveria o público que deseja alcançar em uma frase?',
     );
   });
 

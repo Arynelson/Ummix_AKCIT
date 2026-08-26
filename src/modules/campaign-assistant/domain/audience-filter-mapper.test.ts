@@ -90,6 +90,104 @@ describe('audience filter mapper', () => {
     ]);
   });
 
+  it.each([
+    ['Mulheres', 'Feminino'],
+    ['mulheres com mais de 30 anos', 'Feminino'],
+    ['homens', 'Masculino'],
+  ])('infere %s usando o valor de gênero do catálogo', (message, expectedGender) => {
+    const result = inferNaturalAudienceFilters(message, [
+      {
+        questionId: 'gender-question',
+        question: 'Sexo',
+        category: 'perfil',
+        optionId: 'female-option',
+        option: 'Feminino',
+      },
+      {
+        questionId: 'gender-question',
+        question: 'Sexo',
+        category: 'perfil',
+        optionId: 'male-option',
+        option: 'Masculino',
+      },
+    ]);
+
+    expect(result.filter((filter) => filter.questionId === 'gender-question').map((filter) => filter.option))
+      .toEqual([expectedGender]);
+  });
+
+  it('infere somente as faixas inteiramente acima do limite informado', () => {
+    const result = inferNaturalAudienceFilters('Mulheres com mais de 30 anos', [
+      {
+        questionId: 'gender-question',
+        question: 'Sexo',
+        category: 'perfil',
+        optionId: 'female-option',
+        option: 'Feminino',
+      },
+      ...['30-34', '35-39', '40-44'].map((option) => ({
+        questionId: 'age-question',
+        question: 'Faixa Etária',
+        category: 'perfil',
+        optionId: `age-${option}`,
+        option,
+      })),
+    ]);
+
+    expect(result.map((filter) => filter.option)).toEqual(['Feminino', '35-39', '40-44']);
+  });
+
+  it('usa as faixas amplas atuais do Services sem aplicar uma faixa parcialmente', () => {
+    const result = inferNaturalAudienceFilters('Mulheres com mais de 30 anos', [
+      {
+        questionId: 'gender-question',
+        question: 'Sexo',
+        category: 'perfil',
+        optionId: 'female-option',
+        option: 'Feminino',
+      },
+      ...['25-34', '35-44', '45-54', '55+'].map((option) => ({
+        questionId: 'age-question',
+        question: 'Faixa etária',
+        category: 'perfil',
+        optionId: `age-${option}`,
+        option,
+      })),
+    ]);
+
+    expect(result.map((filter) => filter.option)).toEqual([
+      'Feminino',
+      '35-44',
+      '45-54',
+      '55+',
+    ]);
+  });
+
+  it('preserva as faixas etárias publicadas pelo catálogo', () => {
+    const result = mapAudienceFiltersToTargetAudience([
+      {
+        questionId: 'age-question',
+        question: 'Faixa Etária',
+        optionId: 'under-18',
+        option: 'Menor de 18',
+      },
+      {
+        questionId: 'age-question',
+        question: 'Faixa Etária',
+        optionId: 'age-25-34',
+        option: '25-34',
+      },
+      {
+        questionId: 'age-question',
+        question: 'Faixa Etária',
+        optionId: 'age-55-plus',
+        option: '55+',
+      },
+    ]);
+
+    expect(result.idadeFaixas).toEqual(['Menor de 18', '25-34', '55+']);
+  });
+
   it('does not invent filters when the catalog has no matching options', () => {
     expect(
       inferNaturalAudienceFilters('Mulheres com menos de 40 anos', [
