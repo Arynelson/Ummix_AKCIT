@@ -38,6 +38,7 @@ describe('CampaignContentContextClient', () => {
           Authorization: 'Bearer user-token',
           'Content-Type': 'application/json',
           'x-service-token': 'service-secret',
+          'x-request-id': expect.stringMatching(/^[0-9a-f-]{36}$/),
         },
       }),
     );
@@ -51,6 +52,37 @@ describe('CampaignContentContextClient', () => {
 
     await expect(client.getCampaignContext(context.campaignId, 'user-token'))
       .rejects.toMatchObject({ status: 502 });
+  });
+
+  it('records only safe error metadata returned with a service request id', async () => {
+    const logger = { error: vi.fn() };
+    vi.stubGlobal('fetch', vi.fn().mockResolvedValue(
+      new Response(JSON.stringify({
+        statusCode: 500,
+        message: 'Internal server error',
+        code: 'INTERNAL_SERVER_ERROR',
+        requestId: 'services-error-123',
+      }), {
+        status: 500,
+        headers: { 'x-request-id': 'services-error-123' },
+      }),
+    ));
+    const client = new CampaignContentContextClient('https://services.test/api', 'service-secret', logger);
+
+    await expect(client.getCampaignContext(context.campaignId, 'user-token'))
+      .rejects.toMatchObject({ status: 502 });
+
+    expect(logger.error).toHaveBeenCalledWith(
+      expect.objectContaining({
+        upstreamStatus: 500,
+        failureKind: 'server_error',
+        requestId: expect.stringMatching(/^[0-9a-f-]{36}$/),
+        upstreamRequestId: 'services-error-123',
+        upstreamErrorCode: 'INTERNAL_SERVER_ERROR',
+        upstreamMessage: 'Internal server error',
+      }),
+      expect.any(String),
+    );
   });
 
   it('records a sanitized upstream validation failure for diagnosis', async () => {

@@ -20,7 +20,11 @@ export interface CampaignContentUpstreamFailureDetails {
   baseUrl: string;
   failureKind: CampaignContentUpstreamFailureKind;
   elapsedMs: number;
+  requestId?: string;
   upstreamStatus?: number;
+  upstreamRequestId?: string;
+  upstreamErrorCode?: string;
+  upstreamMessage?: string;
   campaignId?: string;
   contractFailure?: CampaignContentContractFailure;
   issueCount?: number;
@@ -41,6 +45,17 @@ export function logCampaignContentUpstreamFailure(
     elapsedMs: Math.max(0, Math.round(details.elapsedMs)),
   };
   if (details.upstreamStatus !== undefined) bindings.upstreamStatus = details.upstreamStatus;
+  if (details.requestId !== undefined) bindings.requestId = sanitizeRequestId(details.requestId);
+  if (details.upstreamRequestId !== undefined) {
+    bindings.upstreamRequestId = sanitizeRequestId(details.upstreamRequestId);
+  }
+  if (details.upstreamErrorCode !== undefined) {
+    bindings.upstreamErrorCode = sanitizeDiagnosticText(details.upstreamErrorCode, 100);
+  }
+  if (details.upstreamMessage !== undefined) {
+    const message = sanitizeDiagnosticText(details.upstreamMessage, 240);
+    if (message) bindings.upstreamMessage = message;
+  }
   if (details.campaignId !== undefined) bindings.campaignId = sanitizeCampaignId(details.campaignId);
   if (details.contractFailure !== undefined) bindings.contractFailure = details.contractFailure;
   if (details.issueCount !== undefined) bindings.issueCount = details.issueCount;
@@ -75,4 +90,22 @@ function sanitizeCampaignId(campaignId: string): string {
   return /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(campaignId)
     ? campaignId
     : 'invalid';
+}
+
+function sanitizeRequestId(requestId: string): string {
+  return /^[A-Za-z0-9][A-Za-z0-9._:-]{0,127}$/.test(requestId) ? requestId : 'invalid';
+}
+
+function sanitizeDiagnosticText(value: string, maxLength: number): string {
+  return value
+    .replace(/Bearer\s+[^\s]+/gi, 'Bearer [REDACTED]')
+    .replace(
+      /\b(authorization|x-service-token|password|secret|api[-_]?key|access[-_]?token)\s*[:=]\s*["']?[^\s,;}\]"']+/gi,
+      '$1=[REDACTED]',
+    )
+    .replace(/postgres(?:ql)?:\/\/[^\s]+/gi, 'postgresql://[REDACTED]')
+    .replace(/[\u0000-\u0008\u000B\u000C\u000E-\u001F\u007F]/g, ' ')
+    .replace(/\s+/g, ' ')
+    .trim()
+    .slice(0, maxLength);
 }

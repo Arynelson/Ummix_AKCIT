@@ -1,9 +1,11 @@
+import { randomUUID } from 'node:crypto';
 import type { CampaignContentContext } from '@ummix/ai-contracts';
 import { z } from 'zod';
 import {
   classifyTransportError,
   classifyUpstreamHttpStatus,
   logCampaignContentUpstreamFailure,
+  type CampaignContentUpstreamFailureDetails,
   type CampaignContentDiagnosticLogger,
 } from './upstream-diagnostics.js';
 
@@ -48,9 +50,11 @@ export class CampaignContentContextClient {
     accessToken: string,
   ): Promise<CampaignContentContext> {
     const startedAt = Date.now();
+    const requestId = randomUUID();
     const headers: Record<string, string> = {
       Authorization: `Bearer ${accessToken}`,
       'Content-Type': 'application/json',
+      'x-request-id': requestId,
     };
     if (this.serviceToken) headers['x-service-token'] = this.serviceToken;
 
@@ -65,6 +69,7 @@ export class CampaignContentContextClient {
         operation: 'campaign_context',
         baseUrl: this.baseUrl,
         campaignId,
+        requestId,
         failureKind: classifyTransportError(error),
         elapsedMs: Date.now() - startedAt,
       });
@@ -72,14 +77,22 @@ export class CampaignContentContextClient {
     }
 
     if (!response.ok) {
-      logCampaignContentUpstreamFailure(this.logger, {
+      const upstreamError = await readUpstreamError(response);
+      const details: CampaignContentUpstreamFailureDetails = {
         operation: 'campaign_context',
         baseUrl: this.baseUrl,
         campaignId,
+        requestId,
         failureKind: classifyUpstreamHttpStatus(response.status),
         upstreamStatus: response.status,
         elapsedMs: Date.now() - startedAt,
-      });
+      };
+      if (upstreamError.requestId) details.upstreamRequestId = upstreamError.requestId;
+      if (upstreamError.code) details.upstreamErrorCode = upstreamError.code;
+      if ((upstreamError.requestId || upstreamError.code) && upstreamError.message) {
+        details.upstreamMessage = upstreamError.message;
+      }
+      logCampaignContentUpstreamFailure(this.logger, details);
       const status = response.status === 401 || response.status === 403
         ? response.status
         : response.status === 404
@@ -142,4 +155,55 @@ export class CampaignContentContextClient {
     }
     return parsed.data;
   }
+}
+
+interface UpstreamErrorDetails {
+  requestId?: string;
+  code?: string;
+  message?: string;
+}
+
+async function readUpstreamError(response: Response): Promise<UpstreamErrorDetails> {
+  const headerRequestId = toSafeDiagnosticId(response.headers.get('x-request-id'));
+  let payload: unknown;
+  try {
+    payload = await response.json();
+  } catch {
+    return headerRequestId ? { requestId: headerRequestId } : {};
+  }
+  if (!payload || typeof payload !== 'object' || Array.isArray(payload)) {
+    return headerRequestId ? { requestId: headerRequestId } : {};
+  }
+
+  const body = payload as Record<string, unknown>;
+  const requestId = toSafeDiagnosticId(body.requestId) ?? headerRequestId;
+  const code = toSafeDiagnosticCode(body.code ?? body.errorCode);
+  const message = toSafeDiagnosticText(body.message);
+  return {
+    ...(requestId ? { requestId } : {}),
+    ...(code ? { code } : {}),
+    ...(message ? { message } : {}),
+  };
+}
+
+function toSafeDiagnosticId(value: unknown): string | undefined {
+  return typeof value === 'string' && /^[A-Za-z0-9][A-Za-z0-9._:-]{0,127}$/.test(value)
+    ? value
+    : undefined;
+}
+
+function toSafeDiagnosticCode(value: unknown): string | undefined {
+  return typeof value === 'string' && /^[A-Za-z0-9][A-Za-z0-9._-]{0,99}$/.test(value)
+    ? value
+    : undefined;
+}
+
+function toSafeDiagnosticText(value: unknown): string | undefined {
+  if (typeof value !== 'string') return undefined;
+  const normalized = value
+    .replace(/[\u0000-\u001F\u007F]/g, ' ')
+    .replace(/\s+/g, ' ')
+    .trim()
+    .slice(0, 240);
+  return normalized || undefined;
 }

@@ -1,7 +1,7 @@
 # Diagnóstico da integração de conteúdo de campanha
 
 Data: 26/08/2026  
-Escopo: somente `ai-api`
+Escopo: `ai-api` e correlação com o `services`
 
 ## O que foi alterado
 
@@ -21,24 +21,30 @@ O registro utiliza a marca `[campaign-content-diagnostic]` e informa apenas:
 - status HTTP retornado, quando existir;
 - classificação da falha;
 - tempo da chamada;
+- identificador da requisição enviada ao `services`;
+- identificador, código e mensagem pública sanitizada retornados pelo `services`,
+  quando a versão publicada fornecer esses campos;
 - identificador da campanha somente quando ele é um UUID válido;
 - quantidade de problemas, quando o contrato JSON não for compatível.
 
-Tokens, cabeçalhos de autenticação, corpo da resposta upstream, mensagens internas
-e dados pessoais não são registrados.
+Tokens, cabeçalhos de autenticação, corpo bruto da resposta upstream, stack traces
+e dados pessoais não são registrados. A mensagem só é registrada quando vem junto
+do contrato seguro de erro com identificador/código.
 
 ## Arquivos alterados neste diagnóstico
 
 - `src/modules/campaign-content/ummix/upstream-diagnostics.ts` — classificação e
   registro sanitizado das falhas.
 - `src/modules/campaign-content/ummix/context-client.ts` — instrumentação da
-  consulta do contexto e validação do `campaignId` retornado.
+  consulta do contexto, envio do `X-Request-Id`, leitura dos campos seguros de erro
+  e validação do `campaignId` retornado.
 - `src/modules/campaign-content/routes/campaign-content-routes.ts` — instrumentação
   da autenticação upstream usada pelo módulo de conteúdo.
 - `src/modules/campaign-content/module.ts` — conexão do logger do Fastify ao cliente
   de contexto.
 - `src/modules/campaign-content/ummix/context-client.test.ts` — testes de status
-  upstream, timeout, contrato inválido e contexto de outra campanha.
+  upstream, timeout, correlação de erro, contrato inválido e contexto de outra
+  campanha.
 - `src/modules/campaign-content/routes/campaign-content-routes.test.ts` — teste da
   falha de autenticação upstream sem exposição do Bearer token.
 
@@ -49,7 +55,8 @@ e dados pessoais não são registrados.
 3. Repetir o acesso ao conteúdo da campanha.
 4. Consultar os logs do Render e localizar `[campaign-content-diagnostic]`.
 5. Enviar para análise somente os campos `operation`, `upstreamStatus`,
-   `failureKind`, `contractFailure`, `issueCount` e `elapsedMs`. Nunca enviar
+   `failureKind`, `contractFailure`, `issueCount`, `elapsedMs`, `requestId`,
+   `upstreamRequestId`, `upstreamErrorCode` e `upstreamMessage`. Nunca enviar
    valores de variáveis de ambiente ou tokens.
 
 Não é necessário publicar novamente o `ai-web` para essa instrumentação.
@@ -66,5 +73,6 @@ Também não há alteração em `services`, `web` ou no banco principal da Worki
 | `contract_invalid` | resposta incompatível com o contrato esperado | comparar o contrato e a versão publicada |
 | `timeout` / `network` | falha de comunicação | verificar disponibilidade e conectividade do endpoint |
 
-O log identifica a origem provável do erro, mas não substitui o log do backend
-principal quando a falha estiver nos dados ou no banco da campanha.
+O log passa a permitir a correlação com o `services` e pode revelar uma mensagem
+pública de erro. Ele não substitui o stack trace interno do backend principal
+quando a falha estiver nos dados ou no banco da campanha.
