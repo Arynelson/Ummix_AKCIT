@@ -7,6 +7,11 @@ import {
   CampaignContentService,
   type CampaignContentUser,
 } from '../services/campaign-content-service.js';
+import {
+  classifyTransportError,
+  classifyUpstreamHttpStatus,
+  logCampaignContentUpstreamFailure,
+} from '../ummix/upstream-diagnostics.js';
 
 interface AuthenticatedRequest extends FastifyRequest {
   campaignContentAuth: {
@@ -58,6 +63,7 @@ export async function campaignContentRoutes(
     }
     const token = authorization.slice('Bearer '.length).trim();
     if (!token) return reply.code(401).send({ message: 'Token de autenticação ausente' });
+    const startedAt = Date.now();
     try {
       const user = await options.ummix.getCurrentUser(token);
       (rawRequest as AuthenticatedRequest).campaignContentAuth = {
@@ -65,6 +71,23 @@ export async function campaignContentRoutes(
         user: toCampaignContentUser(user),
       };
     } catch (error) {
+      const upstreamStatus = error instanceof UmmixApiError ? error.status : undefined;
+      const failureDetails = {
+        operation: 'current_user' as const,
+        baseUrl: options.config.UMMIX_API_URL,
+        failureKind: upstreamStatus === undefined
+          ? classifyTransportError(error)
+          : classifyUpstreamHttpStatus(upstreamStatus),
+        elapsedMs: Date.now() - startedAt,
+      };
+      logCampaignContentUpstreamFailure(
+        {
+          error: (bindings, message) => rawRequest.log.error(bindings, message),
+        },
+        upstreamStatus === undefined
+          ? failureDetails
+          : { ...failureDetails, upstreamStatus },
+      );
       if (error instanceof UmmixApiError) {
         return reply.code(error.status === 401 || error.status === 403 ? 401 : 502)
           .send({ message: error.status === 401 || error.status === 403

@@ -1,5 +1,11 @@
 import type { CampaignContentContext } from '@ummix/ai-contracts';
 import { z } from 'zod';
+import {
+  classifyTransportError,
+  classifyUpstreamHttpStatus,
+  logCampaignContentUpstreamFailure,
+  type CampaignContentDiagnosticLogger,
+} from './upstream-diagnostics.js';
 
 const contextSchema = z.object({
   contractVersion: z.literal('1'),
@@ -34,12 +40,14 @@ export class CampaignContentContextClient {
   constructor(
     private readonly baseUrl: string,
     private readonly serviceToken?: string,
+    private readonly logger?: CampaignContentDiagnosticLogger,
   ) {}
 
   async getCampaignContext(
     campaignId: string,
     accessToken: string,
   ): Promise<CampaignContentContext> {
+    const startedAt = Date.now();
     const headers: Record<string, string> = {
       Authorization: `Bearer ${accessToken}`,
       'Content-Type': 'application/json',
@@ -52,11 +60,26 @@ export class CampaignContentContextClient {
         `${this.baseUrl}/integrations/campaigns/${encodeURIComponent(campaignId)}/ai-content/context`,
         { headers, signal: AbortSignal.timeout(10_000) },
       );
-    } catch {
+    } catch (error) {
+      logCampaignContentUpstreamFailure(this.logger, {
+        operation: 'campaign_context',
+        baseUrl: this.baseUrl,
+        campaignId,
+        failureKind: classifyTransportError(error),
+        elapsedMs: Date.now() - startedAt,
+      });
       throw new CampaignContentContextError('Serviço de campanhas indisponível.', 502);
     }
 
     if (!response.ok) {
+      logCampaignContentUpstreamFailure(this.logger, {
+        operation: 'campaign_context',
+        baseUrl: this.baseUrl,
+        campaignId,
+        failureKind: classifyUpstreamHttpStatus(response.status),
+        upstreamStatus: response.status,
+        elapsedMs: Date.now() - startedAt,
+      });
       const status = response.status === 401 || response.status === 403
         ? response.status
         : response.status === 404
@@ -74,10 +97,49 @@ export class CampaignContentContextClient {
       );
     }
 
+    let payload: unknown;
     try {
-      return contextSchema.parse(await response.json());
+      payload = await response.json();
     } catch {
+      logCampaignContentUpstreamFailure(this.logger, {
+        operation: 'campaign_context',
+        baseUrl: this.baseUrl,
+        campaignId,
+        failureKind: 'contract_invalid',
+        upstreamStatus: response.status,
+        contractFailure: 'invalid_json',
+        elapsedMs: Date.now() - startedAt,
+      });
       throw new CampaignContentContextError('Contexto da campanha inválido.', 502);
     }
+
+    const parsed = contextSchema.safeParse(payload);
+    if (!parsed.success) {
+      logCampaignContentUpstreamFailure(this.logger, {
+        operation: 'campaign_context',
+        baseUrl: this.baseUrl,
+        campaignId,
+        failureKind: 'contract_invalid',
+        upstreamStatus: response.status,
+        contractFailure: 'schema_mismatch',
+        issueCount: parsed.error.issues.length,
+        elapsedMs: Date.now() - startedAt,
+      });
+      throw new CampaignContentContextError('Contexto da campanha inválido.', 502);
+    }
+    if (parsed.data.campaignId !== campaignId) {
+      logCampaignContentUpstreamFailure(this.logger, {
+        operation: 'campaign_context',
+        baseUrl: this.baseUrl,
+        campaignId,
+        failureKind: 'contract_invalid',
+        upstreamStatus: response.status,
+        contractFailure: 'schema_mismatch',
+        issueCount: 1,
+        elapsedMs: Date.now() - startedAt,
+      });
+      throw new CampaignContentContextError('Contexto da campanha inválido.', 502);
+    }
+    return parsed.data;
   }
 }

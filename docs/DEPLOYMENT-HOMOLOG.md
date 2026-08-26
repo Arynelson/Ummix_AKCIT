@@ -11,3 +11,7 @@
 
 O PostgreSQL definido no Blueprint é temporário e privado. Não deve receber
 dados de produção nem ser tratado como banco definitivo.
+
+Para investigar falhas `502` na geração de conteúdo, consulte
+`docs/AI-CONTENT-UPSTREAM-DIAGNOSTICS.md`. A instrumentação registra a causa
+sanitizada no Render e não exige novo deploy do `ai-web`.

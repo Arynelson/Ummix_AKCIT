@@ -27,7 +27,13 @@ export async function registerCampaignContent(
   const service = new CampaignContentService(
     config,
     new CampaignContentSessionRepository(pool),
-    new CampaignContentContextClient(config.UMMIX_API_URL, config.UMMIX_SERVICE_TOKEN),
+    new CampaignContentContextClient(
+      config.UMMIX_API_URL,
+      config.UMMIX_SERVICE_TOKEN,
+      {
+        error: (bindings, message) => app.log.error(bindings, message),
+      },
+    ),
     new CampaignContentRepository(pool),
     new CampaignContentGenerator(config.OPENAI_API_KEY, config.OPENAI_MODEL),
     lengthPolicy,

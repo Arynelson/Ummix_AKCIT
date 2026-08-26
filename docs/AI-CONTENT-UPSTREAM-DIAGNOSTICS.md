@@ -1,0 +1,70 @@
+# Diagnóstico da integração de conteúdo de campanha
+
+Data: 26/08/2026  
+Escopo: somente `ai-api`
+
+## O que foi alterado
+
+Foi adicionada observabilidade segura para investigar respostas `502` no endpoint
+`GET /api/campaigns/:campaignId/ai-content`.
+
+Os dois pontos de integração agora registram a causa resumida da falha:
+
+1. autenticação do usuário em `GET /users/me`;
+2. contexto da campanha em
+   `GET /integrations/campaigns/:campaignId/ai-content/context`.
+
+O registro utiliza a marca `[campaign-content-diagnostic]` e informa apenas:
+
+- operação (`current_user` ou `campaign_context`);
+- host do backend consultado;
+- status HTTP retornado, quando existir;
+- classificação da falha;
+- tempo da chamada;
+- identificador da campanha somente quando ele é um UUID válido;
+- quantidade de problemas, quando o contrato JSON não for compatível.
+
+Tokens, cabeçalhos de autenticação, corpo da resposta upstream, mensagens internas
+e dados pessoais não são registrados.
+
+## Arquivos alterados neste diagnóstico
+
+- `src/modules/campaign-content/ummix/upstream-diagnostics.ts` — classificação e
+  registro sanitizado das falhas.
+- `src/modules/campaign-content/ummix/context-client.ts` — instrumentação da
+  consulta do contexto e validação do `campaignId` retornado.
+- `src/modules/campaign-content/routes/campaign-content-routes.ts` — instrumentação
+  da autenticação upstream usada pelo módulo de conteúdo.
+- `src/modules/campaign-content/module.ts` — conexão do logger do Fastify ao cliente
+  de contexto.
+- `src/modules/campaign-content/ummix/context-client.test.ts` — testes de status
+  upstream, timeout, contrato inválido e contexto de outra campanha.
+- `src/modules/campaign-content/routes/campaign-content-routes.test.ts` — teste da
+  falha de autenticação upstream sem exposição do Bearer token.
+
+## Como usar na homologação
+
+1. Fazer commit e push somente do repositório `ai-api`.
+2. Aguardar o deploy do serviço `ummix-ai-api-homol` no Render.
+3. Repetir o acesso ao conteúdo da campanha.
+4. Consultar os logs do Render e localizar `[campaign-content-diagnostic]`.
+5. Enviar para análise somente os campos `operation`, `upstreamStatus`,
+   `failureKind`, `contractFailure`, `issueCount` e `elapsedMs`. Nunca enviar
+   valores de variáveis de ambiente ou tokens.
+
+Não é necessário publicar novamente o `ai-web` para essa instrumentação.
+Também não há alteração em `services`, `web` ou no banco principal da Workingtech.
+
+## Interpretação
+
+| `failureKind` | Interpretação inicial | Próxima verificação |
+|---|---|---|
+| `unauthorized` / `forbidden` | credencial ou escopo recusado | conferir configuração do token no Render, sem expô-lo |
+| `not_found` | URL ou rota não encontrada | conferir `UMMIX_API_URL` e a versão publicada do backend |
+| `validation` | campanha rejeitada pelo backend principal | conferir os dados da campanha e o log do backend |
+| `server_error` | erro interno no backend ou banco principal | consultar o log da Workingtech |
+| `contract_invalid` | resposta incompatível com o contrato esperado | comparar o contrato e a versão publicada |
+| `timeout` / `network` | falha de comunicação | verificar disponibilidade e conectividade do endpoint |
+
+O log identifica a origem provável do erro, mas não substitui o log do backend
+principal quando a falha estiver nos dados ou no banco da campanha.
