@@ -45,14 +45,17 @@ describe('audience filter mapper', () => {
     expect(result.selections).toEqual([
       {
         question: 'Faixa etária',
+        questionOriginal: 'P3. Qual sua idade?',
         answers: ['30 a 34 anos'],
       },
       {
         question: 'Renda familiar',
+        questionOriginal: 'P4. Renda familiar mensal',
         answers: ['R$ 2.001 a R$ 5.000'],
       },
       {
         question: 'Possui filhos?',
+        questionOriginal: 'P5. Possui filhos?',
         answers: ['Sim'],
       },
       {
@@ -188,6 +191,42 @@ describe('audience filter mapper', () => {
     expect(result.idadeFaixas).toEqual(['Menor de 18', '25-34', '55+']);
   });
 
+  it('mapeia dimensões demográficas estruturais além de gênero e idade', () => {
+    const result = mapAudienceFiltersToTargetAudience([
+      {
+        questionId: 'region-question',
+        question: 'Região/Bairro',
+        optionId: 'region-option',
+        option: 'Norte',
+      },
+      {
+        questionId: 'religion-question',
+        question: 'Religião',
+        optionId: 'religion-option',
+        option: 'Católica',
+      },
+      {
+        questionId: 'race-question',
+        question: 'Cor/Raça',
+        optionId: 'race-option',
+        option: 'Branca',
+      },
+      {
+        questionId: 'outside-question',
+        question: 'Trabalha ou estuda fora da cidade?',
+        optionId: 'outside-option',
+        option: 'Sim',
+      },
+    ]);
+
+    expect(result).toMatchObject({
+      regiao: ['Norte'],
+      religiao: ['Católica'],
+      corRaca: ['Branca'],
+      trabalhaEstudaFora: 'sim',
+    });
+  });
+
   it('does not invent filters when the catalog has no matching options', () => {
     expect(
       inferNaturalAudienceFilters('Mulheres com menos de 40 anos', [
@@ -217,6 +256,7 @@ describe('audience filter mapper', () => {
       selections: [
         {
           question: 'Qual marca de celular você utiliza?',
+          questionOriginal: 'P99. Marca de celular',
           answers: ['Outra'],
         },
       ],

@@ -389,7 +389,7 @@ export class UmmixClient {
       {
         method: 'POST',
         body: JSON.stringify({
-          demograficos: buildAudienceDemographics(state),
+          demograficos: buildAudienceDemographics(state, channel),
           respostas: groupAudienceFilters(state.audienceFilters ?? []),
           mediaChannel: channel,
         }),
@@ -434,15 +434,31 @@ export class UmmixClient {
 
 function isAudienceQuestion(question: QuestionResponse): boolean {
   const normalizedTitle = normalize(question.title ?? question.label ?? '');
-  const choiceQuestion = !question.type ||
-    ['single_choice', 'multiple_choice', 'radio_with_details'].includes(question.type);
+  const normalizedCategory = normalize(question.category ?? '');
+  const hasActiveOptions = (question.options ?? []).some((option) => option.is_active !== false);
+
+  // O catálogo pode conter perguntas de escolha, numéricas ou monetárias com
+  // intervalos cadastrados. O critério correto é haver opções classificáveis,
+  // não o tipo textual da pergunta.
+  if (!hasActiveOptions) return false;
+
   // As perguntas de Perfil & Hábitos também usam `campaign_creation` no
-  // Services. O stage, sozinho, não distingue perguntas operacionais das
-  // perguntas que devem ser entregues ao LLM para classificar a audiência.
-  const flowQuestion = /estado|cidade|pra[cç]a|canal|r[aá]dio|tv|formato|dura[cç][aã]o|investimento|or[cç]amento|objetivo/i.test(
-    normalizedTitle,
-  );
-  return choiceQuestion && !flowQuestion;
+  // Services. A categoria de alcance é a fonte preferencial para excluir as
+  // perguntas operacionais sem descartar filtros legítimos como "Estado civil"
+  // ou "Consumo de rádio".
+  if (normalizedCategory === 'alcance_campanha') return false;
+
+  const operationalTitle =
+    /^(selecione|escolha|informe|defina)\s+(o|a|os|as)?\s*(estado|cidade|pra[cç]a|canal|formato|dura[cç][aã]o|investimento|or[cç]amento|objetivo)\b/.test(
+      normalizedTitle,
+    ) ||
+    /^escolha\s+(radio|tv)\s+(ou|\/)/.test(normalizedTitle) ||
+    /\bcanal\s+(da|de|para)\s+(campanha|veicula[cç][aã]o|m[ií]dia)\b/.test(normalizedTitle) ||
+    /^(qual|qual e|qual o|qual a)\s+(o|a|os|as)?\s*(estado|cidade|pra[cç]a|canal|formato|dura[cç][aã]o|investimento|or[cç]amento|objetivo)\b.*\bcampanha\b/.test(
+      normalizedTitle,
+    );
+
+  return !operationalTitle;
 }
 
 function toSnapshot(client: UmmixClientResponse): ClientSnapshot {
@@ -469,7 +485,7 @@ export function groupAudienceFilters(filters: AudienceFilterSelection[]) {
     string,
     { question: string; questionOriginal?: string; options: Set<string> }
   >();
-  for (const filter of filters) {
+  for (const filter of filters.filter((candidate) => !isStoredDemographicFilter(candidate))) {
     const current = grouped.get(filter.questionId) ?? {
       question: filter.question,
       options: new Set<string>(),
@@ -490,7 +506,12 @@ export function groupAudienceFilters(filters: AudienceFilterSelection[]) {
   }));
 }
 
-export function buildAudienceDemographics(state: CampaignState) {
+function isStoredDemographicFilter(filter: AudienceFilterSelection): boolean {
+  const searchable = normalize(`${filter.question} ${filter.questionOriginal ?? ''}`);
+  return /\bsexo\b|\bgenero\b|\bidade\b|faixa etaria|regiao|bairro|escolaridade|instrucao|ensino|religiao|renda|salario|classe economica|ocupacao|profissao|\bcor\b|\braca\b|\betnia\b|possui filhos|filh|trabalha ou estuda fora|dias.*radio|radio.*dias|dias.*tv|tv.*dias/.test(searchable);
+}
+
+export function buildAudienceDemographics(state: CampaignState, channel?: MediaChannel) {
   const targetAudience = mapAudienceFiltersToTargetAudience(state.audienceFilters ?? []);
   const genderValues = Array.isArray(targetAudience.gender)
     ? targetAudience.gender.map(String)
@@ -502,11 +523,44 @@ export function buildAudienceDemographics(state: CampaignState) {
         .map((value) => parseAudienceAgeRange(String(value)))
         .filter((range): range is { min: number; max: number } => Boolean(range))
     : [];
+  const regionValues = stringValues(targetAudience.regiao);
+  const religionValues = stringValues(targetAudience.religiao);
+  const raceValues = stringValues(targetAudience.corRaca);
+  const worksStudiesOutside = booleanValues(targetAudience.trabalhaEstudaFora);
+  const radioDays = dayValues(targetAudience.diasSemanaRadio);
+  const tvDays = dayValues(targetAudience.diasSemanaTv);
+  const mediaDays = dayValues(targetAudience.diasSemanaMidia);
+  const radioDayBounds = dayBounds(radioDays.length > 0 ? radioDays : channel === 'radio' ? mediaDays : []);
+  const tvDayBounds = dayBounds(tvDays.length > 0 ? tvDays : channel === 'tv' ? mediaDays : []);
 
   return {
     cidade: campaignLocations(state).map((location) => location.cityId),
     ...(genderValues.length > 0 ? { sexo: [...new Set(genderValues)] } : {}),
     ...(ageRanges.length > 0 ? { faixasEtarias: ageRanges } : {}),
+    ...(stringValues(targetAudience.escolaridade).length > 0
+      ? { escolaridade: [...new Set(stringValues(targetAudience.escolaridade))] }
+      : {}),
+    ...(stringValues(targetAudience.renda).length > 0
+      ? { renda: [...new Set(stringValues(targetAudience.renda))] }
+      : {}),
+    ...(stringValues(targetAudience.ocupacao).length > 0
+      ? { ocupacao: [...new Set(stringValues(targetAudience.ocupacao))] }
+      : {}),
+    ...(booleanValues(targetAudience.filhos).length > 0
+      ? { possuiFilhos: booleanValues(targetAudience.filhos)[0] }
+      : {}),
+    ...(regionValues.length > 0 ? { regiao: [...new Set(regionValues)] } : {}),
+    ...(religionValues.length > 0 ? { religiao: [...new Set(religionValues)] } : {}),
+    ...(raceValues.length > 0 ? { corRaca: [...new Set(raceValues)] } : {}),
+    ...(worksStudiesOutside.length > 0
+      ? { trabalhaEstudaFora: [...new Set(worksStudiesOutside)] }
+      : {}),
+    ...(radioDayBounds
+      ? { diasSemanaRadioMin: radioDayBounds.min, diasSemanaRadioMax: radioDayBounds.max }
+      : {}),
+    ...(tvDayBounds
+      ? { diasSemanaTvMin: tvDayBounds.min, diasSemanaTvMax: tvDayBounds.max }
+      : {}),
   };
 }
 
@@ -526,4 +580,50 @@ function parseAudienceAgeRange(value: string): { min: number; max: number } | nu
     return { min: numbers[0], max: 99 };
   }
   return null;
+}
+
+function stringValues(value: unknown): string[] {
+  const values = Array.isArray(value) ? value : [value];
+  return values
+    .filter((item): item is string => typeof item === 'string')
+    .map((item) => item.trim())
+    .filter(Boolean);
+}
+
+function booleanValues(value: unknown): boolean[] {
+  const values = Array.isArray(value) ? value : [value];
+  return values
+    .map((item) => {
+      if (typeof item === 'boolean') return item;
+      if (typeof item !== 'string') return null;
+      const normalized = item
+        .normalize('NFD')
+        .replace(/\p{Diacritic}/gu, '')
+        .toLocaleLowerCase('pt-BR')
+        .trim();
+      if (/^(sim|true|yes)$/.test(normalized)) return true;
+      if (/^(nao|false|no)$/.test(normalized)) return false;
+      return null;
+    })
+    .filter((item): item is boolean => item !== null);
+}
+
+function dayValues(value: unknown): number[] {
+  const values = Array.isArray(value) ? value : [value];
+  return values
+    .map((item) => {
+      if (typeof item === 'number') return item;
+      if (typeof item !== 'string') return null;
+      const normalized = item.toLocaleLowerCase('pt-BR').trim();
+      if (/todos\s+os\s+dias/.test(normalized)) return 7;
+      if (/nao\s+ouve|nao\s+assiste/.test(normalized)) return 0;
+      const parsed = Number(normalized);
+      return Number.isInteger(parsed) ? parsed : null;
+    })
+    .filter((item): item is number => item !== null && item >= 0 && item <= 7);
+}
+
+function dayBounds(values: number[]): { min: number; max: number } | null {
+  if (values.length === 0) return null;
+  return { min: Math.min(...values), max: Math.max(...values) };
 }

@@ -33,22 +33,35 @@ describe('Ummix audience impact payload', () => {
     });
   });
 
-  it('uses the original services question while retaining the friendly label', () => {
+  it('groups a dynamic services question while retaining the original label', () => {
     expect(
       groupAudienceFilters([
         {
           questionId: 'question-id',
-          question: 'Faixa etária',
-          questionOriginal: 'P3. Qual sua idade?',
+          question: 'Preferência de conteúdo',
+          questionOriginal: 'M1. Conteúdo preferido',
           optionId: 'option-id',
-          option: '30 a 34 anos',
+          option: 'Esporte',
+        },
+        {
+          questionId: 'marital-status-question',
+          question: 'Estado civil',
+          questionOriginal: 'D1. Estado civil',
+          optionId: 'single-option',
+          option: 'Solteiro(a)',
         },
       ]),
     ).toEqual([
       {
-        pergunta: 'Faixa etária',
-        perguntaOriginal: 'P3. Qual sua idade?',
-        opcoes: ['30 a 34 anos'],
+        pergunta: 'Preferência de conteúdo',
+        perguntaOriginal: 'M1. Conteúdo preferido',
+        opcoes: ['Esporte'],
+        operador: 'OR',
+      },
+      {
+        pergunta: 'Estado civil',
+        perguntaOriginal: 'D1. Estado civil',
+        opcoes: ['Solteiro(a)'],
         operador: 'OR',
       },
     ]);
@@ -71,6 +84,102 @@ describe('Ummix audience impact payload', () => {
       cidade: ['city-id'],
       faixasEtarias: [{ min: 0, max: 17 }],
     });
+  });
+
+  it('materializes every structural audience filter supported by Services', () => {
+    expect(
+      buildAudienceDemographics({
+        locations: [{ cityId: 'city-id', cityName: 'Goiânia', stateUf: 'GO' }],
+        audienceFilters: [
+          {
+            questionId: 'region-question',
+            question: 'Região/Bairro',
+            optionId: 'region-option',
+            option: 'Norte',
+          },
+          {
+            questionId: 'religion-question',
+            question: 'Religião',
+            optionId: 'religion-option',
+            option: 'Católica',
+          },
+          {
+            questionId: 'race-question',
+            question: 'Cor/Raça',
+            optionId: 'race-option',
+            option: 'Branca',
+          },
+          {
+            questionId: 'outside-question',
+            question: 'Trabalha ou estuda fora da cidade?',
+            optionId: 'outside-option',
+            option: 'Sim',
+          },
+          {
+            questionId: 'education-question',
+            question: 'Escolaridade',
+            optionId: 'education-option',
+            option: 'Ensino Superior',
+          },
+          {
+            questionId: 'income-question',
+            question: 'Renda familiar',
+            optionId: 'income-option',
+            option: 'R$ 2.001 a R$ 5.000',
+          },
+          {
+            questionId: 'occupation-question',
+            question: 'Ocupação',
+            optionId: 'occupation-option',
+            option: 'Empresário',
+          },
+          {
+            questionId: 'children-question',
+            question: 'Possui filhos?',
+            optionId: 'children-option',
+            option: 'Sim',
+          },
+        ],
+      } as CampaignState),
+    ).toEqual({
+      cidade: ['city-id'],
+      regiao: ['Norte'],
+      religiao: ['Católica'],
+      corRaca: ['Branca'],
+      trabalhaEstudaFora: [true],
+      escolaridade: ['Ensino Superior'],
+      renda: ['R$ 2.001 - R$ 5.000'],
+      ocupacao: ['Empresário'],
+      possuiFilhos: true,
+    });
+  });
+
+  it('envia apenas perguntas EAV nas respostas genéricas', () => {
+    expect(
+      groupAudienceFilters([
+        {
+          questionId: 'gender-question',
+          question: 'Sexo',
+          questionOriginal: 'V3.2. Sexo',
+          optionId: 'female-option',
+          option: 'Feminino',
+        },
+        {
+          questionId: 'dynamic-question',
+          question: 'Qual esporte acompanha?',
+          questionOriginal: 'S2. Esporte acompanhado',
+          optionId: 'football-option',
+          option: 'Futebol',
+        },
+      ]),
+    ).toEqual([
+      {
+        pergunta: 'Qual esporte acompanha?',
+        perguntaOriginal: 'S2. Esporte acompanhado',
+        opcoes: ['Futebol'],
+        operador: 'OR',
+      },
+    ]);
   });
 });
 
@@ -110,6 +219,30 @@ describe('Ummix audience catalog', () => {
             type: 'single_choice',
             options: [{ id: 'radio-option', text: 'Rádio' }],
           },
+          {
+            id: 'marital-status-question',
+            title: 'Estado civil',
+            category: 'perfil',
+            stage: 'auto_preenchimento',
+            type: 'single_choice',
+            options: [{ id: 'single-option', text: 'Solteiro(a)' }],
+          },
+          {
+            id: 'radio-consumption-question',
+            title: 'Com que frequência você ouve rádio?',
+            category: 'midia',
+            stage: 'auto_preenchimento',
+            type: 'single_choice',
+            options: [{ id: 'daily-option', text: 'Todos os dias' }],
+          },
+          {
+            id: 'income-question',
+            title: 'Renda familiar mensal',
+            category: 'socioeconomico',
+            stage: 'auto_preenchimento',
+            type: 'number',
+            options: [{ id: 'income-option', text: 'R$ 2.000 - R$ 5.000' }],
+          },
         ],
       }),
     );
@@ -123,6 +256,27 @@ describe('Ummix audience catalog', () => {
         category: 'perfil_habitos',
         optionId: 'age-option',
         option: '25 a 29',
+      },
+      {
+        questionId: 'marital-status-question',
+        question: 'Estado civil',
+        category: 'perfil',
+        optionId: 'single-option',
+        option: 'Solteiro(a)',
+      },
+      {
+        questionId: 'radio-consumption-question',
+        question: 'Com que frequência você ouve rádio?',
+        category: 'midia',
+        optionId: 'daily-option',
+        option: 'Todos os dias',
+      },
+      {
+        questionId: 'income-question',
+        question: 'Renda familiar mensal',
+        category: 'socioeconomico',
+        optionId: 'income-option',
+        option: 'R$ 2.000 - R$ 5.000',
       },
     ]);
   });

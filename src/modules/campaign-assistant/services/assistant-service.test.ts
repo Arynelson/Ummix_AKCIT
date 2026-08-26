@@ -186,6 +186,7 @@ describe('AssistantService finalization', () => {
           selections: [
             {
               question: 'Faixa etária',
+              questionOriginal: 'P3. Qual sua idade?',
               answers: ['30 a 34 anos'],
             },
           ],

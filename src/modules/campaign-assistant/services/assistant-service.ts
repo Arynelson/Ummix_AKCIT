@@ -883,10 +883,10 @@ function selectAudienceCatalog(
       ...catalog.filter(
         (option) => !rankedIds.has(`${option.questionId}:${option.optionId}`),
       ),
-    ].slice(0, 400);
+    ];
   }
 
-  return (ranked.length > 0 ? ranked.map((item) => item.option) : catalog).slice(0, 400);
+  return ranked.length > 0 ? ranked.map((item) => item.option) : catalog;
 }
 
 function mentionsAudience(message: string): boolean {

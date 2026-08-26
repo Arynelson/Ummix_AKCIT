@@ -9,10 +9,16 @@ type AudienceField =
   | 'preferenciaConteudo'
   | 'consumoMidia'
   | 'escolaridade'
+  | 'religiao'
+  | 'corRaca'
+  | 'regiao'
   | 'planoSaude'
   | 'atividadesFisicas'
   | 'seguroAutomovel'
   | 'agronegocio'
+  | 'trabalhaEstudaFora'
+  | 'diasSemanaRadio'
+  | 'diasSemanaTv'
   | 'aprovaGestaoFederal'
   | 'pretendeComprarAuto'
   | 'pretendeComprarImovel'
@@ -140,8 +146,9 @@ export function mapAudienceFiltersToTargetAudience(
   }
 
   if (selections.size > 0) {
-    target.selections = [...selections.values()].map(({ question, answers }) => ({
+    target.selections = [...selections.values()].map(({ question, questionOriginal, answers }) => ({
       question,
+      ...(questionOriginal ? { questionOriginal } : {}),
       answers,
     }));
   }
@@ -216,6 +223,15 @@ function resolveAudienceField(
 ): AudienceField | null {
   const searchable = normalize(`${filter.question} ${filter.questionOriginal ?? ''}`);
 
+  if (/dias.*radio|radio.*dias/.test(searchable)) {
+    return 'diasSemanaRadio';
+  }
+  if (/dias.*tv|tv.*dias/.test(searchable)) {
+    return 'diasSemanaTv';
+  }
+  if (/trabalha\s+ou\s+estuda\s+fora/.test(searchable)) {
+    return 'trabalhaEstudaFora';
+  }
   if (/dia.*semana|segunda|terca|quarta|quinta|sexta|sabado|domingo/.test(searchable)) {
     return 'diasSemanaMidia';
   }
@@ -246,23 +262,32 @@ function resolveAudienceField(
   if (/animal|pet|estima[cç][aã]o/.test(searchable)) {
     return 'animais';
   }
+  if (/regiao|bairro/.test(searchable)) {
+    return 'regiao';
+  }
+  if (/religi[aã]o/.test(searchable)) {
+    return 'religiao';
+  }
+  if (/cor|ra[cç]a|etnia/.test(searchable)) {
+    return 'corRaca';
+  }
   if (/filh|crianca|cria[nñ]ca/.test(searchable)) {
     return 'filhos';
   }
   if (/sexo|genero/.test(searchable)) {
     return 'gender';
   }
-  if (/ocup|profiss|empreg|trabalh/.test(searchable)) {
+  if (/ocup|profiss|empreg/.test(searchable)) {
     return 'ocupacao';
+  }
+  if (/escolar|instrucao|ensino/.test(searchable)) {
+    return 'escolaridade';
   }
   if (/renda|salario|classe economica/.test(searchable)) {
     return 'renda';
   }
   if (/idade|faixa etaria|anos/.test(searchable)) {
     return 'idadeFaixas';
-  }
-  if (/escolar|instrucao|ensino/.test(searchable)) {
-    return 'escolaridade';
   }
   if (/consum.*midia|onde.*(ouve|assiste)|meio.*comunic|canal.*comunic/.test(searchable)) {
     return 'consumoMidia';
@@ -338,11 +363,25 @@ function findCanonicalValue(field: AudienceField, value: string): string | null 
 }
 
 function isPillField(field: AudienceField): boolean {
-  return ['filhos', 'animais', 'planoSaude', 'atividadesFisicas', 'seguroAutomovel', 'agronegocio'].includes(field);
+  return [
+    'filhos',
+    'animais',
+    'planoSaude',
+    'atividadesFisicas',
+    'seguroAutomovel',
+    'agronegocio',
+    'trabalhaEstudaFora',
+  ].includes(field);
 }
 
 function isSingleValueField(field: AudienceField): boolean {
-  return isPillField(field) || field === 'diasSemanaMidia';
+  return (
+    isPillField(field) ||
+    field === 'diasSemanaMidia' ||
+    field === 'trabalhaEstudaFora' ||
+    field === 'diasSemanaRadio' ||
+    field === 'diasSemanaTv'
+  );
 }
 
 function parseNumbers(value: string): number[] {
