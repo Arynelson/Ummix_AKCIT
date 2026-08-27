@@ -101,6 +101,38 @@ const AGE_RANGES = [
   { min: 60, max: 99, value: '60+' },
 ];
 
+const CORE_GENDER_CATALOG: AudienceCatalogOption[] = [
+  {
+    questionId: 'core-demographic-sex',
+    question: 'Sexo',
+    category: 'core_demographic',
+    optionId: 'core-demographic-sex-female',
+    option: 'Feminino',
+  },
+  {
+    questionId: 'core-demographic-sex',
+    question: 'Sexo',
+    category: 'core_demographic',
+    optionId: 'core-demographic-sex-male',
+    option: 'Masculino',
+  },
+];
+
+const CORE_AGE_CATALOG: AudienceCatalogOption[] = [
+  'Menor de 18',
+  '18-24',
+  '25-34',
+  '35-44',
+  '45-54',
+  '55+',
+].map((option) => ({
+  questionId: 'core-demographic-age',
+  question: 'Faixa etária',
+  category: 'core_demographic',
+  optionId: `core-demographic-age-${normalize(option).replace(/[^a-z0-9]+/g, '-')}`,
+  option,
+}));
+
 /**
  * Converte filtros dinâmicos do catálogo do services para o shape canônico
  * consumido pelo wizard de terceiros. Os IDs e a seleção original continuam
@@ -158,8 +190,9 @@ export function mapAudienceFiltersToTargetAudience(
 
 /**
  * Provides a conservative deterministic fallback for common natural-language
- * expressions. The LLM remains the primary classifier; this fallback can only
- * return options already present in the remote catalog.
+ * expressions. The LLM remains the primary classifier. Dynamic dimensions are
+ * restricted to the remote catalog; only the stable Services demographics
+ * (sexo and faixa etária) have a local baseline for catalog outages.
  */
 export function inferNaturalAudienceFilters(
   message: string,
@@ -176,7 +209,7 @@ export function inferNaturalAudienceFilters(
   if (!wantsFemale && !wantsMale && !ageConstraint) return [];
 
   const inferred: AudienceFilterSelection[] = [];
-  for (const option of catalog) {
+  for (const option of withCoreDemographicCatalog(catalog)) {
     const field = resolveAudienceField(option);
     const optionText = normalize(option.option);
 
@@ -216,6 +249,32 @@ export function inferNaturalAudienceFilters(
   }
 
   return dedupeSelections(inferred);
+}
+
+function withCoreDemographicCatalog(
+  catalog: AudienceCatalogOption[],
+): AudienceCatalogOption[] {
+  const hasFemale = catalog.some((option) => {
+    const optionText = normalize(option.option);
+    return resolveAudienceField(option) === 'gender'
+      && /femin|mulher|female|^f$/.test(optionText);
+  });
+  const hasMale = catalog.some((option) => {
+    const optionText = normalize(option.option);
+    return resolveAudienceField(option) === 'gender'
+      && /mascul|homem|male|^m$/.test(optionText);
+  });
+  const hasAgeDimension = catalog.some(
+    (option) => resolveAudienceField(option) === 'idadeFaixas',
+  );
+
+  return [
+    ...catalog,
+    ...CORE_GENDER_CATALOG.filter((option) =>
+      option.option === 'Feminino' ? !hasFemale : !hasMale,
+    ),
+    ...(hasAgeDimension ? [] : CORE_AGE_CATALOG),
+  ];
 }
 
 function resolveAudienceField(

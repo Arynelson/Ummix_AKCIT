@@ -119,6 +119,25 @@ describe('audience filter mapper', () => {
       .toEqual([expectedGender]);
   });
 
+  it.each([
+    ['Mulheres', 'Feminino'],
+    ['homens', 'Masculino'],
+  ])('keeps the core %s demographic available when the remote catalog is empty', (message, option) => {
+    expect(inferNaturalAudienceFilters(message, [])).toEqual([
+      expect.objectContaining({
+        question: 'Sexo',
+        option,
+      }),
+    ]);
+  });
+
+  it('keeps canonical age ranges available when the remote catalog is empty', () => {
+    expect(
+      inferNaturalAudienceFilters('Pessoas com mais de 30 anos', [])
+        .map((filter) => filter.option),
+    ).toEqual(['35-44', '45-54', '55+']);
+  });
+
   it('infere somente as faixas inteiramente acima do limite informado', () => {
     const result = inferNaturalAudienceFilters('Mulheres com mais de 30 anos', [
       {
@@ -227,7 +246,7 @@ describe('audience filter mapper', () => {
     });
   });
 
-  it('does not invent filters when the catalog has no matching options', () => {
+  it('does not invent dynamic age ranges when the remote age dimension exists', () => {
     expect(
       inferNaturalAudienceFilters('Mulheres com menos de 40 anos', [
         {
@@ -237,8 +256,8 @@ describe('audience filter mapper', () => {
           optionId: 'age-40',
           option: '40-44',
         },
-      ]),
-    ).toEqual([]);
+      ]).map((filter) => filter.option),
+    ).toEqual(['Feminino']);
   });
 
   it('keeps a catalog option in selections even when no UI field mapping exists', () => {

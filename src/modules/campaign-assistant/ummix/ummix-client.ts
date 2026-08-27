@@ -78,6 +78,11 @@ interface CalculationResponse {
   projectedSales: number;
 }
 
+interface UmmixDiagnosticLogger {
+  info(bindings: Record<string, unknown>, message: string): void;
+  warn(bindings: Record<string, unknown>, message: string): void;
+}
+
 export class UmmixApiError extends Error {
   constructor(
     message: string,
@@ -96,7 +101,11 @@ export class UmmixClient {
     options: AudienceCatalogOption[];
   }>();
 
-  constructor(private readonly baseUrl: string) {}
+  constructor(
+    private readonly baseUrl: string,
+    private readonly serviceToken?: string,
+    private readonly logger?: UmmixDiagnosticLogger,
+  ) {}
 
   getCurrentUser(token: string): Promise<UmmixUser> {
     return this.request<UmmixUser>('/users/me', token);
@@ -229,7 +238,29 @@ export class UmmixClient {
       return cached.options;
     }
 
-    const questions = await this.request<QuestionResponse[]>('/questions/user/active', token);
+    let questions: QuestionResponse[];
+    try {
+      const requestInit: RequestInit = this.serviceToken
+        ? { headers: { 'x-service-token': this.serviceToken } }
+        : {};
+      questions = await this.request<QuestionResponse[]>(
+        '/questions/user/active',
+        token,
+        requestInit,
+      );
+    } catch (error) {
+      this.logger?.warn(
+        {
+          diagnostic: 'campaign-assistant-audience-catalog',
+          operation: 'fetch',
+          failureKind: 'upstream_error',
+          upstreamStatus: error instanceof UmmixApiError ? error.status : undefined,
+          errorName: error instanceof Error ? error.name : 'UnknownError',
+        },
+        '[campaign-assistant-diagnostic] audience catalog fetch failed',
+      );
+      throw error;
+    }
     const options = questions.filter(isAudienceQuestion).flatMap((question) =>
       (question.options ?? [])
         .filter((option) => option.is_active !== false)
@@ -243,6 +274,18 @@ export class UmmixClient {
           optionId: option.id,
           option: option.text,
         })),
+    );
+    const catalogSummary = summarizeAudienceCatalog(questions, options);
+    const log = options.length > 0 ? this.logger?.info.bind(this.logger) : this.logger?.warn.bind(this.logger);
+    log?.(
+      {
+        diagnostic: 'campaign-assistant-audience-catalog',
+        operation: 'map',
+        ...catalogSummary,
+      },
+      options.length > 0
+        ? '[campaign-assistant-diagnostic] audience catalog mapped'
+        : '[campaign-assistant-diagnostic] audience catalog is empty',
     );
     this.audienceCatalogCache.set(cacheKey, {
       options,
@@ -459,6 +502,22 @@ function isAudienceQuestion(question: QuestionResponse): boolean {
     );
 
   return !operationalTitle;
+}
+
+function summarizeAudienceCatalog(
+  questions: QuestionResponse[],
+  options: AudienceCatalogOption[],
+): Record<string, number | boolean> {
+  const questionLabels = options.map((option) =>
+    normalize(`${option.question} ${option.questionOriginal ?? ''}`),
+  );
+  return {
+    upstreamQuestionCount: questions.length,
+    audienceQuestionCount: new Set(options.map((option) => option.questionId)).size,
+    audienceOptionCount: options.length,
+    hasGenderDimension: questionLabels.some((label) => /sexo|genero/.test(label)),
+    hasAgeDimension: questionLabels.some((label) => /idade|faixa etaria/.test(label)),
+  };
 }
 
 function toSnapshot(client: UmmixClientResponse): ClientSnapshot {

@@ -247,7 +247,20 @@ describe('Ummix audience catalog', () => {
       }),
     );
 
-    const catalog = await new UmmixClient('https://services.test').getAudienceCatalog('service-token');
+    const catalog = await new UmmixClient(
+      'https://services.test',
+      'integration-service-token',
+    ).getAudienceCatalog('user-token');
+
+    expect(fetch).toHaveBeenCalledWith(
+      'https://services.test/questions/user/active',
+      expect.objectContaining({
+        headers: expect.objectContaining({
+          Authorization: 'Bearer user-token',
+          'x-service-token': 'integration-service-token',
+        }),
+      }),
+    );
 
     expect(catalog).toEqual([
       {

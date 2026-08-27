@@ -13,7 +13,11 @@ export async function registerCampaignAssistant(
 ): Promise<void> {
   const { config, pool } = dependencies;
   const repository = new SessionRepository(pool);
-  const ummix = new UmmixClient(config.UMMIX_API_URL);
+  const ummix = new UmmixClient(
+    config.UMMIX_API_URL,
+    config.UMMIX_SERVICE_TOKEN,
+    app.log,
+  );
   const extractor = new CampaignBriefExtractor(config.OPENAI_API_KEY, config.OPENAI_MODEL);
   const assistant = new AssistantService(config, repository, ummix, extractor);
 

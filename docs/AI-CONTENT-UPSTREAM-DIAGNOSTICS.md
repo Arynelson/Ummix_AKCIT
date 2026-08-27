@@ -76,3 +76,21 @@ Também não há alteração em `services`, `web` ou no banco principal da Worki
 O log passa a permitir a correlação com o `services` e pode revelar uma mensagem
 pública de erro. Ele não substitui o stack trace interno do backend principal
 quando a falha estiver nos dados ou no banco da campanha.
+
+## Diagnóstico confirmado em 27/08/2026
+
+O `502` da campanha de homologação foi reproduzido como um `500` originado no
+`services`. A causa encontrada no código foi o tratamento das colunas PostgreSQL
+`date`: o driver entrega `start_date` e `end_date` como texto `YYYY-MM-DD`, mas o
+endpoint chamava `toISOString()` como se fossem objetos `Date`.
+
+Depois da correção no `ummix-back-develop`, os códigos abaixo podem ser
+correlacionados diretamente no log do Render:
+
+| Código | Etapa que falhou |
+|---|---|
+| `AI_CONTENT_CAMPAIGN_LOOKUP_FAILED` | consulta da campanha no banco principal |
+| `AI_CONTENT_PAYMENT_LOOKUP_FAILED` | consulta do pagamento no banco principal |
+
+O código não inclui SQL, stack trace, credenciais ou dados da campanha. O detalhe
+técnico permanece somente no log interno do backend principal.
