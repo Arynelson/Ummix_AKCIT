@@ -159,18 +159,14 @@ const CORE_GENDER_CATALOG: AudienceCatalogOption[] = [
 ];
 
 const CORE_AGE_CATALOG: AudienceCatalogOption[] = [
-  'Menor de 18',
-  '18-24',
-  '25-34',
-  '35-44',
-  '45-54',
-  '55+',
-].map((option) => ({
+  { min: 0, max: 17, value: 'Menor de 18' },
+  ...AGE_RANGES,
+].map(({ value }) => ({
   questionId: 'core-demographic-age',
   question: 'Faixa etária',
   category: 'core_demographic',
-  optionId: `core-demographic-age-${normalize(option).replace(/[^a-z0-9]+/g, '-')}`,
-  option,
+  optionId: `core-demographic-age-${normalize(value).replace(/[^a-z0-9]+/g, '-')}`,
+  option: value,
 }));
 
 type AgeConstraint =
@@ -748,8 +744,10 @@ function withCoreDemographicCatalog(
     return resolveAudienceField(option) === 'gender'
       && /mascul|homem|male|^m$/.test(optionText);
   });
-  const hasAgeDimension = catalog.some(
-    (option) => resolveAudienceField(option) === 'idadeFaixas',
+  const hasUsableAgeDimension = catalog.some(
+    (option) =>
+      resolveAudienceField(option) === 'idadeFaixas' &&
+      parseAgeRange(option.option) !== null,
   );
 
   return [
@@ -757,7 +755,10 @@ function withCoreDemographicCatalog(
     ...CORE_GENDER_CATALOG.filter((option) =>
       option.option === 'Feminino' ? !hasFemale : !hasMale,
     ),
-    ...(hasAgeDimension ? [] : CORE_AGE_CATALOG),
+    // A dimensão pode ser reconhecida por engano ou conter opções como
+    // "Não informado". Só dispensamos o fallback quando existe pelo menos
+    // uma opção de idade que pode ser convertida em faixa.
+    ...(hasUsableAgeDimension ? [] : CORE_AGE_CATALOG),
   ];
 }
 
@@ -849,7 +850,7 @@ function resolveAudienceField(
     return 'renda';
   }
   if (
-    /idade|faixa etaria|anos|\bage\b/.test(searchable) ||
+    /idade|faixa etaria|\banos\b|\bage\b/.test(searchable) ||
     /idade|faixaetaria/.test(compactSearchable)
   ) {
     return 'idadeFaixas';

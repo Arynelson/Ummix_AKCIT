@@ -367,10 +367,46 @@ export class UmmixClient {
       },
       '[campaign-assistant-diagnostic] finalization payload prepared',
     );
-    return this.request(`/campaigns/${encodeURIComponent(campaignId)}`, token, {
-      method: 'PATCH',
-      body: JSON.stringify(payload),
-    });
+    const response = await this.request<Record<string, unknown>>(
+      `/campaigns/${encodeURIComponent(campaignId)}`,
+      token,
+      {
+        method: 'PATCH',
+        body: JSON.stringify(payload),
+      },
+    );
+    const persistedTargetAudience = extractTargetAudience(response);
+    this.logger?.info(
+      {
+        diagnostic: 'campaign-assistant-finalization-upstream-response',
+        operation: 'updateCampaign',
+        campaignId,
+        responseType: responseType(response),
+        responseTargetAudienceFound: Boolean(persistedTargetAudience),
+        responseTargetAudienceKeys: persistedTargetAudience
+          ? Object.keys(persistedTargetAudience).sort()
+          : [],
+        persistedHasGender: hasNonEmptyAudienceValue(
+          persistedTargetAudience,
+          'gender',
+        ) || hasNonEmptyAudienceValue(persistedTargetAudience, 'sexo'),
+        persistedAgeFilterCount: arrayLength(
+          persistedTargetAudience,
+          'idadeFaixas',
+        ),
+        persistedNativeAgeRangeCount: arrayLength(
+          persistedTargetAudience,
+          'faixasEtarias',
+        ),
+        persistedAudienceFilterCount: arrayLength(
+          persistedTargetAudience,
+          'audienceFilters',
+        ),
+        persistedSelectionCount: arrayLength(persistedTargetAudience, 'selections'),
+      },
+      '[campaign-assistant-diagnostic] finalization upstream response observed',
+    );
+    return response;
   }
 
   private async calculateChannel(
@@ -580,6 +616,44 @@ function normalize(value: string): string {
 
 function isRecord(value: unknown): value is Record<string, unknown> {
   return Boolean(value) && typeof value === 'object' && !Array.isArray(value);
+}
+
+function extractTargetAudience(value: unknown): Record<string, unknown> | null {
+  if (!isRecord(value)) return null;
+  if (isRecord(value.targetAudience)) return value.targetAudience;
+
+  for (const envelopeKey of ['campaign', 'data']) {
+    const envelope = value[envelopeKey];
+    if (isRecord(envelope) && isRecord(envelope.targetAudience)) {
+      return envelope.targetAudience;
+    }
+  }
+  return null;
+}
+
+function responseType(value: unknown): string {
+  if (value === undefined) return 'empty';
+  if (value === null) return 'null';
+  if (Array.isArray(value)) return 'array';
+  return typeof value;
+}
+
+function arrayLength(
+  targetAudience: Record<string, unknown> | null,
+  key: string,
+): number {
+  const value = targetAudience?.[key];
+  return Array.isArray(value) ? value.length : 0;
+}
+
+function hasNonEmptyAudienceValue(
+  targetAudience: Record<string, unknown> | null,
+  key: string,
+): boolean {
+  const value = targetAudience?.[key];
+  if (Array.isArray(value)) return value.length > 0;
+  if (typeof value === 'string') return value.trim().length > 0;
+  return value !== null && value !== undefined;
 }
 
 export function groupAudienceFilters(filters: AudienceFilterSelection[]) {

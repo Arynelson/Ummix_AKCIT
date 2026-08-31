@@ -149,7 +149,46 @@ describe('audience filter mapper', () => {
     expect(
       inferNaturalAudienceFilters('Pessoas com mais de 30 anos', [])
         .map((filter) => filter.option),
-    ).toEqual(['35-44', '45-54', '55+']);
+    ).toEqual(['35-39', '40-44', '45-49', '50-54', '55-59', '60+']);
+  });
+
+  it('uses the age fallback when the catalog has an unusable age-like dimension', () => {
+    const result = inferNaturalAudienceFilters('mulheres com mais de 20 anos', [
+      {
+        questionId: 'gender-question',
+        question: 'Sexo',
+        category: 'perfil',
+        optionId: 'female-option',
+        option: 'Feminino',
+      },
+      {
+        questionId: 'urban-question',
+        question: 'Públicos urbanos',
+        category: 'perfil_habitos',
+        optionId: 'urban-option',
+        option: 'Sim',
+      },
+      {
+        questionId: 'age-question',
+        question: 'Faixa etária',
+        category: 'perfil_habitos',
+        optionId: 'age-unknown',
+        option: 'Não informado',
+      },
+    ]);
+
+    expect(result.map((filter) => filter.option)).toEqual([
+      'Feminino',
+      '21-24',
+      '25-29',
+      '30-34',
+      '35-39',
+      '40-44',
+      '45-49',
+      '50-54',
+      '55-59',
+      '60+',
+    ]);
   });
 
   it('infere somente as faixas inteiramente acima do limite informado', () => {

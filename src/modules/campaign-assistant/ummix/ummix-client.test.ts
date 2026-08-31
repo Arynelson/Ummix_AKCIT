@@ -294,3 +294,79 @@ describe('Ummix audience catalog', () => {
     ]);
   });
 });
+
+describe('Ummix campaign update diagnostics', () => {
+  afterEach(() => {
+    vi.unstubAllGlobals();
+  });
+
+  it('logs the persisted audience shape without logging audience values', async () => {
+    const logger = {
+      info: vi.fn(),
+      warn: vi.fn(),
+    };
+    const response = {
+      id: 'campaign-id',
+      targetAudience: {
+        cidade: ['Goiânia'],
+        gender: ['Feminino'],
+        sexo: ['Feminino'],
+        idadeFaixas: ['21-24'],
+        audienceFilters: [{ questionId: 'age-question', option: '21-24' }],
+        selections: [{ question: 'Faixa etária', answers: ['21-24'] }],
+      },
+    };
+    const fetchMock = vi.fn().mockResolvedValue({
+      ok: true,
+      status: 200,
+      json: async () => response,
+    });
+    vi.stubGlobal('fetch', fetchMock);
+
+    const result = await new UmmixClient(
+      'https://services.test',
+      'integration-service-token',
+      logger,
+    ).updateCampaign(
+      'user-token',
+      'campaign-id',
+      { targetAudience: response.targetAudience },
+    );
+
+    expect(result).toEqual(response);
+    const responseLog = logger.info.mock.calls
+      .map(([bindings, message]) => ({ bindings, message }))
+      .find(({ bindings }) => bindings.diagnostic === 'campaign-assistant-finalization-upstream-response');
+
+    expect(responseLog).toMatchObject({
+      bindings: {
+        diagnostic: 'campaign-assistant-finalization-upstream-response',
+        responseType: 'object',
+        responseTargetAudienceFound: true,
+        responseTargetAudienceKeys: expect.arrayContaining([
+          'audienceFilters',
+          'cidade',
+          'gender',
+          'idadeFaixas',
+          'selections',
+          'sexo',
+        ]),
+        persistedHasGender: true,
+        persistedAgeFilterCount: 1,
+        persistedAudienceFilterCount: 1,
+        persistedSelectionCount: 1,
+      },
+    });
+    expect(JSON.stringify(responseLog)).not.toContain('Feminino');
+    expect(JSON.stringify(responseLog)).not.toContain('21-24');
+    expect(fetchMock).toHaveBeenCalledWith(
+      'https://services.test/campaigns/campaign-id',
+      expect.objectContaining({
+        method: 'PATCH',
+        headers: expect.objectContaining({
+          Authorization: 'Bearer user-token',
+        }),
+      }),
+    );
+  });
+});
