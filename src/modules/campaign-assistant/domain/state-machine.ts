@@ -287,7 +287,7 @@ export function nextAssistantTurn(
 
   return {
     message:
-      'A proposta está pronta. Confira o resumo e, quando estiver de acordo, crie o rascunho para revisar antes do pagamento.',
+      'A proposta está pronta. Confira o resumo e, quando estiver de acordo, finalize a campanha para revisar antes do pagamento.',
     quickReplies: [],
   };
 }

@@ -51,12 +51,18 @@ export interface SessionView {
   } | null;
 }
 
+interface AssistantDiagnosticLogger {
+  info(bindings: Record<string, unknown>, message: string): void;
+  warn(bindings: Record<string, unknown>, message: string): void;
+}
+
 export class AssistantService {
   constructor(
     private readonly config: AppConfig,
     private readonly repository: SessionRepository,
     private readonly ummix: UmmixClient,
     private readonly extractor: CampaignBriefExtractor,
+    private readonly logger?: AssistantDiagnosticLogger,
   ) {}
 
   async getContext(token: string, user: UmmixUser) {
@@ -196,33 +202,68 @@ export class AssistantService {
           fullAudienceCatalog,
           currentField === 'audienceDescription' || currentField === 'audienceConfirmation',
         );
-        const extractedPatch = await this.extractor.extract({
-          message: input.message,
-          currentState: nextState,
-          userId: input.user.id,
-          audienceCatalog,
-          currentField,
-          referenceDate,
-        });
+        const isAudienceTurn =
+          currentField === 'audienceDescription' ||
+          currentField === 'audienceConfirmation' ||
+          Boolean(nextState.audienceDescription && currentField === null);
+        let inferredFilters = isAudienceTurn
+          ? inferNaturalAudienceFilters(input.message, audienceCatalog)
+          : [];
+        let extractedPatch: ExtractedCampaignPatch;
+        try {
+          extractedPatch = await this.extractor.extract({
+            message: input.message,
+            currentState: nextState,
+            userId: input.user.id,
+            audienceCatalog,
+            currentField,
+            referenceDate,
+          });
+        } catch (error) {
+          if (!(error instanceof OpenAIUnavailableError)) throw error;
+          // A catalog-driven deterministic pass keeps explicit demographic and
+          // allowlisted phrases useful when the LLM times out or returns an
+          // invalid structured response. The user can continue manually and
+          // the failure remains observable through the existing metric.
+          extractedPatch = emptyExtractedPatch(isAudienceTurn ? input.message : null);
+          fallbackToManual = true;
+          await this.repository.trackMetric({
+            sessionId: session.id,
+            userType: session.userType,
+            eventName: 'manual_fallback',
+            metadata: { stage: 'llm' },
+          });
+        }
         const patch = normalizeContextualPatch(extractedPatch, {
           message: input.message,
           currentField,
           referenceDate,
         });
         const validatedPatch = validateAudiencePatch(patch, audienceCatalog);
-        const isAudienceTurn =
-          currentField === 'audienceDescription' ||
-          currentField === 'audienceConfirmation' ||
-          Boolean(patch.audienceDescription?.trim());
-        const inferredFilters = isAudienceTurn
-          ? inferNaturalAudienceFilters(input.message, audienceCatalog)
-          : [];
+        const effectiveAudienceTurn = isAudienceTurn || Boolean(patch.audienceDescription?.trim());
+        if (effectiveAudienceTurn && !isAudienceTurn) {
+          inferredFilters = inferNaturalAudienceFilters(input.message, audienceCatalog);
+        }
         const audienceFilters = dedupeAudienceFilters([
           ...(validatedPatch.audienceFilters ?? []),
           ...inferredFilters,
         ]);
+        this.logger?.info(
+          {
+            diagnostic: 'campaign-assistant-audience-classification',
+            currentField,
+            isAudienceTurn: effectiveAudienceTurn,
+            catalogOptionCount: audienceCatalog.length,
+            validatedFilterCount: validatedPatch.audienceFilters?.length ?? 0,
+            inferredFilterCount: inferredFilters.length,
+            finalFilterCount: audienceFilters.length,
+            recognizedFields: [...new Set(audienceFilters.map((filter) => filter.questionId))],
+            llmFallback: fallbackToManual,
+          },
+          '[campaign-assistant-diagnostic] audience classification',
+        );
         const audienceDescription = patch.audienceDescription?.trim()
-          || (isAudienceTurn ? input.message.trim().slice(0, 500) : '');
+          || (effectiveAudienceTurn ? input.message.trim().slice(0, 500) : '');
         const enrichedPatch: ValidatedCampaignPatch = {
           ...validatedPatch,
           ...(audienceDescription
@@ -473,7 +514,7 @@ export class AssistantService {
     session = claim.session ?? session;
     let campaignId = session.finalizedCampaignId;
     if (!claim.claimed && !campaignId) {
-      throw new AssistantHttpError(409, 'A criação do rascunho já está em andamento.');
+      throw new AssistantHttpError(409, 'A finalização da campanha já está em andamento.');
     }
     if (!campaignId) {
       try {
@@ -601,6 +642,21 @@ export class AssistantHttpError extends Error {
 
 function displayClient(client: ClientSnapshot): string {
   return client.companyName || client.companyBrand || client.fullName;
+}
+
+function emptyExtractedPatch(audienceDescription: string | null): ExtractedCampaignPatch {
+  return {
+    productService: null,
+    objective: null,
+    audienceDescription,
+    audienceFilters: [],
+    audienceAlternatives: [],
+    cityName: null,
+    stateUf: null,
+    maximumBudget: null,
+    desiredStartDate: null,
+    selectedChannel: null,
+  };
 }
 
 function campaignName(state: CampaignState): string {

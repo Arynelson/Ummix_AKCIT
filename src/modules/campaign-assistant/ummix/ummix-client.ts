@@ -335,11 +335,38 @@ export class UmmixClient {
     });
   }
 
-  updateCampaign(
+  async updateCampaign(
     token: string,
     campaignId: string,
     payload: Record<string, unknown>,
   ): Promise<Record<string, unknown>> {
+    const targetAudience = isRecord(payload.targetAudience)
+      ? payload.targetAudience
+      : null;
+    const audienceFilters = targetAudience && Array.isArray(targetAudience.audienceFilters)
+      ? targetAudience.audienceFilters
+      : [];
+    const selections = targetAudience && Array.isArray(targetAudience.selections)
+      ? targetAudience.selections
+      : [];
+    this.logger?.info(
+      {
+        diagnostic: 'campaign-assistant-finalization-payload',
+        operation: 'updateCampaign',
+        campaignId,
+        targetAudienceKeys: targetAudience ? Object.keys(targetAudience).sort() : [],
+        audienceFilterCount: audienceFilters.length,
+        selectionCount: Array.isArray(selections) ? selections.length : 0,
+        hasGender: Boolean(
+          (Array.isArray(targetAudience?.gender) && targetAudience.gender.length > 0) ||
+          (Array.isArray(targetAudience?.sexo) && targetAudience.sexo.length > 0),
+        ),
+        ageFilterCount: Array.isArray(targetAudience?.idadeFaixas)
+          ? targetAudience.idadeFaixas.length
+          : 0,
+      },
+      '[campaign-assistant-diagnostic] finalization payload prepared',
+    );
     return this.request(`/campaigns/${encodeURIComponent(campaignId)}`, token, {
       method: 'PATCH',
       body: JSON.stringify(payload),
@@ -426,14 +453,26 @@ export class UmmixClient {
     state: CampaignState,
     channel: MediaChannel,
   ): Promise<{ totalImpacts: number }> {
+    const demographics = buildAudienceDemographics(state, channel);
+    const responses = groupAudienceFilters(state.audienceFilters ?? []);
+    this.logger?.info(
+      {
+        diagnostic: 'campaign-assistant-audience-impact-payload',
+        channel,
+        demographicKeys: Object.keys(demographics).sort(),
+        genericResponseCount: responses.length,
+        audienceFilterCount: state.audienceFilters?.length ?? 0,
+      },
+      '[campaign-assistant-diagnostic] audience impact payload',
+    );
     const response = await this.request<{ totalImpactos?: number; totalImpacts?: number }>(
       '/survey/impacts/advanced',
       token,
       {
         method: 'POST',
         body: JSON.stringify({
-          demograficos: buildAudienceDemographics(state, channel),
-          respostas: groupAudienceFilters(state.audienceFilters ?? []),
+          demograficos: demographics,
+          respostas: responses,
           mediaChannel: channel,
         }),
       },
@@ -515,8 +554,8 @@ function summarizeAudienceCatalog(
     upstreamQuestionCount: questions.length,
     audienceQuestionCount: new Set(options.map((option) => option.questionId)).size,
     audienceOptionCount: options.length,
-    hasGenderDimension: questionLabels.some((label) => /sexo|genero/.test(label)),
-    hasAgeDimension: questionLabels.some((label) => /idade|faixa etaria/.test(label)),
+    hasGenderDimension: questionLabels.some((label) => /sexo|genero|\bgender\b/.test(label)),
+    hasAgeDimension: questionLabels.some((label) => /\bidade\b|faixa etaria|\banos\b|\bage\b/.test(label)),
   };
 }
 
@@ -537,6 +576,10 @@ function normalize(value: string): string {
     .replace(/\p{Diacritic}/gu, '')
     .trim()
     .toLocaleLowerCase('pt-BR');
+}
+
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return Boolean(value) && typeof value === 'object' && !Array.isArray(value);
 }
 
 export function groupAudienceFilters(filters: AudienceFilterSelection[]) {
@@ -572,10 +615,11 @@ function isStoredDemographicFilter(filter: AudienceFilterSelection): boolean {
 
 export function buildAudienceDemographics(state: CampaignState, channel?: MediaChannel) {
   const targetAudience = mapAudienceFiltersToTargetAudience(state.audienceFilters ?? []);
-  const genderValues = Array.isArray(targetAudience.gender)
-    ? targetAudience.gender.map(String)
-    : typeof targetAudience.gender === 'string'
-      ? [targetAudience.gender]
+  const genderSource = targetAudience.gender ?? targetAudience.sexo;
+  const genderValues = Array.isArray(genderSource)
+    ? genderSource.map(String)
+    : typeof genderSource === 'string'
+      ? [genderSource]
       : [];
   const ageRanges = Array.isArray(targetAudience.idadeFaixas)
     ? targetAudience.idadeFaixas

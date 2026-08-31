@@ -19,7 +19,7 @@ export async function registerCampaignAssistant(
     app.log,
   );
   const extractor = new CampaignBriefExtractor(config.OPENAI_API_KEY, config.OPENAI_MODEL);
-  const assistant = new AssistantService(config, repository, ummix, extractor);
+  const assistant = new AssistantService(config, repository, ummix, extractor, app.log);
 
   await app.register(
     async (scoped) => {

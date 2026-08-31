@@ -2,6 +2,7 @@ import { describe, expect, it, vi } from 'vitest';
 import type { AppConfig } from '../../../config.js';
 import type { AssistantSession } from '../domain/types.js';
 import { initialState } from '../domain/state-machine.js';
+import { OpenAIUnavailableError } from '../openai/extractor.js';
 import { AssistantService } from './assistant-service.js';
 
 const config: AppConfig = {
@@ -68,6 +69,12 @@ describe('AssistantService finalization', () => {
       objective: 'reconhecimento_marca' as const,
       audienceDescription: 'Mulheres adultas',
       audienceFilters: [
+        {
+          questionId: 'gender-question',
+          question: 'Sexo',
+          optionId: 'gender-option',
+          option: 'Feminino',
+        },
         {
           questionId: 'age-question',
           question: 'Faixa etária',
@@ -182,14 +189,20 @@ describe('AssistantService finalization', () => {
         frequency: 66,
         period: 3,
         targetAudience: expect.objectContaining({
+          gender: ['Feminino'],
+          sexo: ['Feminino'],
           idadeFaixas: ['30-34'],
-          selections: [
+          selections: expect.arrayContaining([
+            {
+              question: 'Sexo',
+              answers: ['Feminino'],
+            },
             {
               question: 'Faixa etária',
               questionOriginal: 'P3. Qual sua idade?',
               answers: ['30 a 34 anos'],
             },
-          ],
+          ]),
         }),
       }),
     );
@@ -408,6 +421,97 @@ describe('AssistantService finalization', () => {
         question: 'Ocupação',
         option: 'Autônomo ou Profissional Liberal',
       }),
+    ]);
+  });
+
+  it('persists explicit gender and age filters when the LLM is unavailable', async () => {
+    const location = { cityId: 'city', cityName: 'Goiânia', stateUf: 'GO' };
+    const state = {
+      ...initialState(100, 'varejo', [location]),
+      productService: 'Consultoria',
+      objective: 'reconhecimento_marca' as const,
+      location,
+      locations: [location],
+    };
+    const session = {
+      id: '93203443-1fe8-45d0-a90d-8ec96ba8042f',
+      userId: '856918db-6f3d-4375-a95c-715177012cca',
+      userType: 'regular_client',
+      clientId: '7ed901e4-3adf-45f4-a60d-17908424045f',
+      clientSnapshot: {
+        id: '7ed901e4-3adf-45f4-a60d-17908424045f',
+        fullName: 'Cliente',
+        companyName: 'Empresa',
+        companyBrand: 'Marca',
+        businessActivity: 'varejo',
+        isActive: true,
+      },
+      status: 'collecting',
+      state,
+      messages: [],
+      finalizedCampaignId: null,
+      finalizedAt: null,
+      reviewReachedAt: null,
+      expiresAt: '2099-01-01T00:00:00.000Z',
+      createdAt: '2026-08-18T00:00:00.000Z',
+      updatedAt: '2026-08-18T00:00:00.000Z',
+      version: 1,
+    } as AssistantSession;
+    const catalog = [
+      {
+        questionId: '11111111-1111-4111-8111-111111111111',
+        question: 'Idade',
+        category: 'perfil_habitos',
+        optionId: '22222222-2222-4222-8222-222222222222',
+        option: '21 a 24 anos',
+      },
+      {
+        questionId: '11111111-1111-4111-8111-111111111111',
+        question: 'Idade',
+        category: 'perfil_habitos',
+        optionId: '33333333-3333-4333-8333-333333333333',
+        option: '25 a 34 anos',
+      },
+    ];
+    let savedState = state;
+    const repository = {
+      findOwned: vi.fn().mockResolvedValue(session),
+      countRecentMessages: vi.fn().mockResolvedValue(0),
+      trackMetric: vi.fn().mockResolvedValue(undefined),
+      saveTurn: vi.fn().mockImplementation(async (input) => {
+        savedState = input.state;
+        return { ...session, state: input.state, messages: input.messages, version: 2 };
+      }),
+    };
+    const ummix = { getAudienceCatalog: vi.fn().mockResolvedValue(catalog) };
+    const extractor = {
+      extract: vi.fn().mockRejectedValue(new OpenAIUnavailableError()),
+    };
+    const service = new AssistantService(
+      config,
+      repository as never,
+      ummix as never,
+      extractor as never,
+    );
+
+    const result = await service.sendMessage({
+      id: session.id,
+      token: 'redacted',
+      user: {
+        id: session.userId,
+        fullName: 'Cliente',
+        role: 'user',
+        userType: 'regular_client',
+      },
+      message: 'mulheres com mais de 20 anos',
+    });
+
+    expect(result.fallbackToManual).toBe(true);
+    expect(savedState.audienceDescription).toBe('mulheres com mais de 20 anos');
+    expect(savedState.audienceFilters?.map((filter) => filter.option)).toEqual([
+      '21 a 24 anos',
+      '25 a 34 anos',
+      'Feminino',
     ]);
   });
 });

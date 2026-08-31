@@ -169,6 +169,7 @@ export class CampaignBriefExtractor {
             'Mapeie objetivos somente para reconhecimento_marca, lancamento_produto ou promocao_oferta.',
             'Mapeie canal somente quando o usuário escolher explicitamente Rádio ou TV.',
             'Quando a mensagem descrever o público, classifique somente opções presentes no audienceCatalog, retornando os IDs exatos questionId e optionId e uma confiança de 0 a 1.',
+            'Avalie a frase inteira e todas as dimensões aplicáveis do catálogo; não pare no primeiro filtro encontrado. Por exemplo, "mulheres com mais de 20 anos" pode conter gênero e faixa etária.',
             'Se houver uma interpretação segura, retorne audienceFilters e deixe audienceAlternatives vazio.',
             'Se houver ambiguidade, deixe audienceFilters vazio e retorne até duas audienceAlternatives, cada uma com filtros exatos do catálogo e confiança própria.',
             'Não invente IDs, perguntas ou opções. Se não houver correspondência segura nem alternativas seguras, retorne ambos vazios.',

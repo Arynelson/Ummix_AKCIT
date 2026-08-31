@@ -65,6 +65,20 @@ describe('audience filter mapper', () => {
     ]);
   });
 
+  it('emits both gender aliases required by the campaign boundary', () => {
+    expect(mapAudienceFiltersToTargetAudience([
+      {
+        questionId: 'gender-question',
+        question: 'Sexo',
+        optionId: 'female-option',
+        option: 'Feminino',
+      },
+    ])).toMatchObject({
+      gender: ['Feminino'],
+      sexo: ['Feminino'],
+    });
+  });
+
   it('infers gender and all catalog age ranges below a natural-language limit', () => {
     const result = inferNaturalAudienceFilters('Mulheres com menos de 40 anos', [
       {
@@ -157,6 +171,153 @@ describe('audience filter mapper', () => {
     ]);
 
     expect(result.map((filter) => filter.option)).toEqual(['Feminino', '35-39', '40-44']);
+  });
+
+  it('reconhece idade em rótulos publicados pelo catálogo real', () => {
+    const result = inferNaturalAudienceFilters('mulheres com mais de 20 anos', [
+      {
+        questionId: 'age-question',
+        question: 'Idade',
+        category: 'perfil_habitos',
+        optionId: 'age-15-20',
+        option: '15 a 20 anos',
+      },
+      {
+        questionId: 'age-question',
+        question: 'Idade',
+        category: 'perfil_habitos',
+        optionId: 'age-21-24',
+        option: '21 a 24 anos',
+      },
+      {
+        questionId: 'age-question',
+        question: 'Idade',
+        category: 'perfil_habitos',
+        optionId: 'age-25-34',
+        option: '25 a 34 anos',
+      },
+      {
+        questionId: 'age-question',
+        question: 'Idade',
+        category: 'perfil_habitos',
+        optionId: 'age-60-plus',
+        option: 'Acima de 60 anos',
+      },
+    ]);
+
+    expect(result.map((filter) => filter.option)).toEqual([
+      '21 a 24 anos',
+      '25 a 34 anos',
+      'Acima de 60 anos',
+      'Feminino',
+    ]);
+  });
+
+  it('reconhece palavras-chave para dimensões allowlistadas além de gênero e idade', () => {
+    const result = inferNaturalAudienceFilters(
+      'mães, profissionais liberais que gostam de futebol e ouvem rádio',
+      [
+        {
+          questionId: 'children-question',
+          question: 'Possui filhos?',
+          category: 'perfil_habitos',
+          optionId: 'children-yes',
+          option: 'Sim',
+        },
+        {
+          questionId: 'occupation-question',
+          question: 'Ocupação',
+          category: 'perfil_habitos',
+          optionId: 'occupation-self-employed',
+          option: 'Autônomo ou Profissional Liberal',
+        },
+        {
+          questionId: 'content-question',
+          question: 'Preferência de conteúdo',
+          category: 'perfil_habitos',
+          optionId: 'content-sport',
+          option: 'Esporte',
+        },
+        {
+          questionId: 'media-question',
+          question: 'Consumo de mídia',
+          category: 'perfil_habitos',
+          optionId: 'media-radio',
+          option: 'Rádio AM/FM',
+        },
+      ],
+    );
+
+    expect(result.map((filter) => filter.option)).toEqual([
+      'Sim',
+      'Autônomo ou Profissional Liberal',
+      'Esporte',
+      'Rádio AM/FM',
+    ]);
+  });
+
+  it('reconhece filtros condicionais de imóvel, automóvel e agronegócio', () => {
+    const result = inferNaturalAudienceFilters(
+      'pessoas que querem comprar uma casa de até 250 mil e trabalham no agro',
+      [
+        {
+          questionId: 'buy-home-question',
+          question: 'Você pretende comprar um imóvel?',
+          category: 'perfil_habitos',
+          optionId: 'buy-home-yes',
+          option: 'Sim',
+        },
+        {
+          questionId: 'home-type-question',
+          question: 'Tipo de imóvel',
+          category: 'perfil_habitos',
+          optionId: 'home-type-house',
+          option: 'Casa',
+        },
+        {
+          questionId: 'home-value-question',
+          question: 'Valor do imóvel',
+          category: 'perfil_habitos',
+          optionId: 'home-value-low',
+          option: 'até R$ 250.000,00',
+        },
+        {
+          questionId: 'agro-question',
+          question: 'Você trabalha ou tem relação com o agronegócio?',
+          category: 'perfil_habitos',
+          optionId: 'agro-yes',
+          option: 'Sim',
+        },
+      ],
+    );
+
+    expect(result.map((filter) => filter.option)).toEqual([
+      'Sim',
+      'Casa',
+      'até R$ 250.000,00',
+      'Sim',
+    ]);
+  });
+
+  it('não confunde uma afirmação negada com a opção positiva', () => {
+    const result = inferNaturalAudienceFilters('mulheres sem filhos', [
+      {
+        questionId: 'children-question',
+        question: 'Possui filhos?',
+        category: 'perfil_habitos',
+        optionId: 'children-yes',
+        option: 'Sim',
+      },
+      {
+        questionId: 'children-question',
+        question: 'Possui filhos?',
+        category: 'perfil_habitos',
+        optionId: 'children-no',
+        option: 'Não',
+      },
+    ]);
+
+    expect(result.map((filter) => filter.option)).toEqual(['Não', 'Feminino']);
   });
 
   it('usa as faixas amplas atuais do Services sem aplicar uma faixa parcialmente', () => {
