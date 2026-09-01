@@ -37,7 +37,7 @@ CREATE TABLE IF NOT EXISTS campaign_content.messages (
   message_type VARCHAR(16) NOT NULL CHECK (message_type IN ('question', 'answer', 'status', 'error')),
   content TEXT NOT NULL CHECK (char_length(content) BETWEEN 1 AND 4000),
   metadata JSONB,
-  created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+  created_at TIMESTAMPTZ NOT NULL DEFAULT clock_timestamp()
 );
 
 CREATE INDEX IF NOT EXISTS idx_campaign_content_messages_session_created
@@ -55,7 +55,7 @@ CREATE TABLE IF NOT EXISTS campaign_content.contents (
   status VARCHAR(32) NOT NULL
     CHECK (status IN ('generating', 'options_ready', 'saved', 'archived', 'failed')),
   options JSONB NOT NULL,
-  selected_option_id VARCHAR(32),
+  selected_option_id VARCHAR(80),
   selected_text_original TEXT,
   final_text TEXT,
   is_edited BOOLEAN NOT NULL DEFAULT FALSE,

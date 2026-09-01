@@ -170,7 +170,7 @@ export async function campaignContentRoutes(
 
 export function campaignContentErrorHandler(
   error: unknown,
-  _request: FastifyRequest,
+  request: FastifyRequest,
   reply: FastifyReply,
 ): FastifyReply {
   if (error instanceof z.ZodError) {
@@ -185,7 +185,59 @@ export function campaignContentErrorHandler(
   if (error instanceof CampaignContentHttpError) {
     return reply.code(error.statusCode).send({ message: error.message });
   }
+  logCampaignContentInternalFailure(request, error);
   return reply.code(500).send({ message: 'Erro interno do conteúdo de campanha' });
+}
+
+function logCampaignContentInternalFailure(request: FastifyRequest, error: unknown): void {
+  const params = request.params;
+  const body = request.body;
+  const bindings: Record<string, unknown> = {
+    diagnostic: 'campaign-content-internal-error',
+    operation: request.method === 'PUT' && request.url.includes('/selection')
+      ? 'save_selection'
+      : 'campaign_content_request',
+    requestId: request.id,
+    errorName: error instanceof Error ? error.name : 'UnknownError',
+    errorCode: safeErrorCode(error),
+    errorMessage: safeErrorMessage(error),
+  };
+  const campaignId = safeUuid(requestField(params, 'campaignId'));
+  const sessionId = safeUuid(requestField(params, 'sessionId'));
+  const generationId = safeUuid(requestField(body, 'generationId'));
+  if (campaignId) bindings.campaignId = campaignId;
+  if (sessionId) bindings.sessionId = sessionId;
+  if (generationId) bindings.generationId = generationId;
+  request.log.error(bindings, '[campaign-content-diagnostic] internal failure');
+}
+
+function requestField(value: unknown, key: string): unknown {
+  if (!value || typeof value !== 'object' || Array.isArray(value)) return undefined;
+  return (value as Record<string, unknown>)[key];
+}
+
+function safeUuid(value: unknown): string | undefined {
+  return typeof value === 'string'
+    && /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/iu.test(value)
+    ? value
+    : undefined;
+}
+
+function safeErrorCode(error: unknown): string | undefined {
+  const value = requestField(error, 'code');
+  return typeof value === 'string' && /^[A-Za-z0-9._:-]{1,32}$/u.test(value)
+    ? value
+    : undefined;
+}
+
+function safeErrorMessage(error: unknown): string {
+  if (!(error instanceof Error)) return 'Unknown internal error';
+  return error.message
+    .replace(/[\u0000-\u001F\u007F]/gu, ' ')
+    .replace(/'[^']*'/gu, "'[redacted]'")
+    .replace(/\s+/gu, ' ')
+    .trim()
+    .slice(0, 240) || 'Unknown internal error';
 }
 
 function toCampaignContentUser(user: UmmixUser): CampaignContentUser {

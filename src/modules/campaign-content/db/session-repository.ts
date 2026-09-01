@@ -233,8 +233,8 @@ export class CampaignContentSessionRepository {
 
       await client.query(
         `INSERT INTO campaign_content.messages
-          (id, session_id, client_message_id, role, message_type, content, metadata)
-         VALUES ($1, $2, $3, 'user', 'answer', $4, NULL)`,
+          (id, session_id, client_message_id, role, message_type, content, metadata, created_at)
+         VALUES ($1, $2, $3, 'user', 'answer', $4, NULL, clock_timestamp())`,
         [randomUUID(), input.sessionId, input.clientMessageId, input.answerText],
       );
       await this.insertAssistantMessage(client, input.sessionId, input.assistantMessage);
@@ -316,7 +316,9 @@ export class CampaignContentSessionRepository {
       `SELECT id, session_id, client_message_id, role, message_type, content, metadata, created_at
        FROM campaign_content.messages
        WHERE session_id = $1
-       ORDER BY created_at ASC, id ASC`,
+       ORDER BY created_at ASC,
+                CASE WHEN role = 'user' THEN 0 ELSE 1 END,
+                id ASC`,
       [sessionId],
     );
     return result.rows.map(mapMessage);
@@ -330,8 +332,8 @@ export class CampaignContentSessionRepository {
     if (!message) return;
     await client.query(
       `INSERT INTO campaign_content.messages
-        (id, session_id, client_message_id, role, message_type, content, metadata)
-       VALUES ($1, $2, NULL, 'assistant', $3, $4, $5::jsonb)`,
+        (id, session_id, client_message_id, role, message_type, content, metadata, created_at)
+       VALUES ($1, $2, NULL, 'assistant', $3, $4, $5::jsonb, clock_timestamp())`,
       [randomUUID(), sessionId, message.type, message.text, JSON.stringify(message.metadata ?? null)],
     );
   }
