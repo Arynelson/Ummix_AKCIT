@@ -79,6 +79,92 @@ describe('audience filter mapper', () => {
     });
   });
 
+  it('uses a stable catalog fieldKey for newly added segmentation dimensions', () => {
+    const result = mapAudienceFiltersToTargetAudience([
+      {
+        questionId: 'health-plan-question',
+        question: 'Filtro de público',
+        fieldKey: 'plano_saude',
+        optionId: 'health-plan-option',
+        option: 'Sim',
+      },
+    ]);
+
+    expect(result).toMatchObject({
+      planoSaude: 'sim',
+      selections: [
+        {
+          fieldKey: 'plano_saude',
+          answers: ['Sim'],
+        },
+      ],
+    });
+  });
+
+  it('classifies a new boolean filter from natural language using fieldKey metadata', () => {
+    expect(
+      inferNaturalAudienceFilters('pessoas com plano de saúde', [
+        {
+          questionId: 'health-plan-question',
+          question: 'Filtro de público',
+          fieldKey: 'plano_saude',
+          category: 'perfil_habitos',
+          optionId: 'health-plan-option',
+          option: 'Sim',
+        },
+      ]),
+    ).toEqual([
+      expect.objectContaining({
+        fieldKey: 'plano_saude',
+        option: 'Sim',
+      }),
+    ]);
+  });
+
+  it('recognizes the occupation wording used by customers', () => {
+    const result = inferNaturalAudienceFilters('profissionais autonomos', [
+      {
+        questionId: 'occupation-question',
+        question: 'Ocupação',
+        category: 'perfil_habitos',
+        optionId: 'occupation-self-employed',
+        option: 'Autônomo e Profissional Liberal',
+      },
+    ]);
+
+    expect(result).toEqual([
+      expect.objectContaining({
+        questionId: 'occupation-question',
+        optionId: 'occupation-self-employed',
+        option: 'Autônomo e Profissional Liberal',
+      }),
+    ]);
+  });
+
+  it('recognizes every explicit filter from one audience sentence', () => {
+    const result = inferNaturalAudienceFilters('possuem filhos e animais de estimação', [
+      {
+        questionId: 'children-question',
+        question: 'Possui Filhos',
+        category: 'perfil_habitos',
+        optionId: 'children-yes',
+        option: 'Sim',
+      },
+      {
+        questionId: 'animals-question',
+        question: 'Possui Animais de Estimação',
+        category: 'perfil_habitos',
+        optionId: 'animals-yes',
+        option: 'Sim',
+      },
+    ]);
+
+    expect(result.map((filter) => `${filter.questionId}:${filter.optionId}`)).toEqual([
+      'children-question:children-yes',
+      'animals-question:animals-yes',
+    ]);
+  });
+
   it('infers gender and all catalog age ranges below a natural-language limit', () => {
     const result = inferNaturalAudienceFilters('Mulheres com menos de 40 anos', [
       {

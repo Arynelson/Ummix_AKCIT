@@ -49,7 +49,10 @@ describe('CampaignContentGenerator', () => {
     const result = await generator.generate({
       userId: 'user-1',
       campaignSnapshot: snapshot,
-      answers: { product_or_service: 'Produto teste' },
+      answers: {
+        brand_name: 'Marca informada pelo cliente',
+        product_or_service: 'Produto teste',
+      },
       lengthPolicy: policy,
       countWords: (text) => text.trim().split(/\s+/u).length,
       isWithinPolicy: (count, currentPolicy) => count >= currentPolicy.minWords && count <= currentPolicy.maxWords,
@@ -61,6 +64,11 @@ describe('CampaignContentGenerator', () => {
     const request = JSON.parse(fetchMock.mock.calls[0]?.[1]?.body as string) as Record<string, unknown>;
     expect(request).toMatchObject({ model: 'test-model', store: false });
     expect(request.instructions).toContain('dados nao confiaveis');
+    expect(request.instructions).toContain('Nome Fantasia');
+    expect(JSON.parse(request.input as string)).toMatchObject({
+      contentBrandName: 'Marca informada pelo cliente',
+      campaignSnapshot: { brandName: 'Marca informada pelo cliente' },
+    });
     expect((request.text as { format: { strict: boolean } }).format.strict).toBe(true);
   });
 

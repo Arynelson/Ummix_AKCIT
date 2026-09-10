@@ -42,6 +42,8 @@ export interface AudienceFilterSelection {
   questionId: string;
   question: string;
   questionOriginal?: string;
+  /** Optional upstream metadata; unknown keys are ignored by the allowlisted mapper. */
+  fieldKey?: string;
   category?: string | null;
   optionId: string;
   option: string;
@@ -73,6 +75,7 @@ export interface AudienceCatalogOption {
   questionId: string;
   question: string;
   questionOriginal?: string;
+  fieldKey?: string;
   category: string | null;
   optionId: string;
   option: string;

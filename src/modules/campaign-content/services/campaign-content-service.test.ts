@@ -108,7 +108,7 @@ function makeContent(overrides: Partial<CampaignContentRecord> = {}): ContentWit
       lengthPolicy: { version: 'pt-br-v1', durationSeconds: 30, minWords: 66, maxWords: 78 },
       wordCount: null,
       modelName: 'test-model',
-      promptVersion: 'campaign-content-pt-br-v1',
+      promptVersion: 'campaign-content-pt-br-v2',
       emailStatus: 'not_sent',
       emailSentAt: null,
       emailLastError: null,
@@ -120,7 +120,7 @@ function makeContent(overrides: Partial<CampaignContentRecord> = {}): ContentWit
 }
 
 describe('CampaignContentService', () => {
-  it('creates a session from the server context and asks for product details', async () => {
+  it('creates a session from the server context and asks for the brand name first', async () => {
     const repository = {
       createOrFindActive: vi.fn().mockResolvedValue(makeSession()),
     };
@@ -139,11 +139,11 @@ describe('CampaignContentService', () => {
     expect(repository.createOrFindActive).toHaveBeenCalledWith(expect.objectContaining({
       campaignId: context.campaignId,
       userId: user.id,
-      currentQuestionKey: 'product_or_service',
+      currentQuestionKey: 'brand_name',
       status: 'collecting',
     }));
     expect(result.campaignContext.objective).toBe('promocao_oferta');
-    expect(result.missingFields[0]).toBe('product_or_service');
+    expect(result.missingFields[0]).toBe('brand_name');
   });
 
   it('refuses an ineligible campaign before creating a session', async () => {
@@ -205,7 +205,7 @@ describe('CampaignContentService', () => {
       generate: vi.fn().mockResolvedValue({
         options: completed.content.options,
         modelName: 'test-model',
-        promptVersion: 'campaign-content-pt-br-v1',
+        promptVersion: 'campaign-content-pt-br-v2',
       }),
     };
     const lengthPolicy = new CampaignContentLengthPolicyService({

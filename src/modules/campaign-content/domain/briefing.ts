@@ -4,6 +4,7 @@ export const CAMPAIGN_CONTENT_MAX_ANSWER_LENGTH = 2_000;
 export const CAMPAIGN_CONTENT_MAX_MESSAGES = 20;
 
 const QUESTION_LABELS: Record<string, string> = {
+  brand_name: 'Qual o nome Fantasia da empresa que devemos divulgar?',
   product_or_service: 'O que será divulgado? Descreva o produto ou serviço.',
   target_audience: 'Para quem essa mensagem deve falar?',
   main_benefit: 'Qual é o principal benefício ou diferencial?',
@@ -23,8 +24,8 @@ export function missingBriefingFields(
   const objective = snapshot.objective?.toLowerCase() ?? '';
   const isBrandRecognition = objective.includes('reconhecimento') || objective.includes('marca');
   const fields = isBrandRecognition
-    ? ['core_message', 'positioning', 'target_audience', 'tone', 'restrictions']
-    : ['product_or_service', 'target_audience', 'main_benefit', 'call_to_action', 'tone', 'restrictions'];
+    ? ['brand_name', 'core_message', 'positioning', 'target_audience', 'tone', 'restrictions']
+    : ['brand_name', 'product_or_service', 'target_audience', 'main_benefit', 'call_to_action', 'tone', 'restrictions'];
 
   if (objective.includes('promoc') || objective.includes('oferta') || objective.includes('lanc')) {
     fields.splice(isBrandRecognition ? 2 : 3, 0, 'offer_details', 'validity');

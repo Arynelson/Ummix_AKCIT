@@ -57,6 +57,7 @@ interface QuestionResponse {
   id: string;
   title?: string;
   label?: string;
+  fieldKey?: string;
   category?: string | null;
   options?: QuestionOptionResponse[];
   stage?: string;
@@ -76,6 +77,14 @@ interface CalculationResponse {
   inventory: number;
   projectedLeads: number;
   projectedSales: number;
+}
+
+interface AudienceImpactResponse {
+  totalImpactos?: number;
+  totalImpacts?: number;
+  totalRespondentes?: number;
+  totalRespondents?: number;
+  filtrosAplicados?: unknown[];
 }
 
 interface UmmixDiagnosticLogger {
@@ -261,8 +270,9 @@ export class UmmixClient {
       );
       throw error;
     }
-    const options = questions.filter(isAudienceQuestion).flatMap((question) =>
-      (question.options ?? [])
+    const options = questions.filter(isAudienceQuestion).flatMap((question) => {
+      const fieldKey = readQuestionFieldKey(question);
+      return (question.options ?? [])
         .filter((option) => option.is_active !== false)
         .map((option) => ({
           questionId: question.id,
@@ -270,11 +280,12 @@ export class UmmixClient {
           ...(question.config?.originalExcelColumn
             ? { questionOriginal: question.config.originalExcelColumn }
             : {}),
+          ...(fieldKey ? { fieldKey } : {}),
           category: question.category ?? null,
           optionId: option.id,
           option: option.text,
-        })),
-    );
+        }));
+    });
     const catalogSummary = summarizeAudienceCatalog(questions, options);
     const log = options.length > 0 ? this.logger?.info.bind(this.logger) : this.logger?.warn.bind(this.logger);
     log?.(
@@ -415,6 +426,20 @@ export class UmmixClient {
     channel: MediaChannel,
   ): Promise<MediaPlan> {
     try {
+      const numFilters = Math.max(
+        1,
+        new Set((state.audienceFilters ?? []).map((filter) => filter.questionId)).size,
+      );
+      this.logger?.info(
+        {
+          diagnostic: 'campaign-assistant-media-plan-input',
+          channel,
+          numFilters,
+          audienceFilterCount: state.audienceFilters?.length ?? 0,
+          locationCount: campaignLocations(state).length,
+        },
+        '[campaign-assistant-diagnostic] media plan input',
+      );
       const [calculation, impacts] = await Promise.all([
         this.request<CalculationResponse>('/campaigns/calculate', token, {
           method: 'POST',
@@ -425,10 +450,7 @@ export class UmmixClient {
             brandStrength: state.brandStrength,
             format: channel === 'radio' ? 'spot' : 'vt',
             duration: String(state.durationSeconds),
-            numFilters: Math.max(
-              1,
-              new Set((state.audienceFilters ?? []).map((filter) => filter.questionId)).size,
-            ),
+            numFilters,
             investment: state.maximumBudget,
           }),
         }),
@@ -488,7 +510,7 @@ export class UmmixClient {
     token: string,
     state: CampaignState,
     channel: MediaChannel,
-  ): Promise<{ totalImpacts: number }> {
+  ): Promise<{ totalImpacts: number; upstreamRespondents: number | null }> {
     const demographics = buildAudienceDemographics(state, channel);
     const responses = groupAudienceFilters(state.audienceFilters ?? []);
     this.logger?.info(
@@ -501,7 +523,7 @@ export class UmmixClient {
       },
       '[campaign-assistant-diagnostic] audience impact payload',
     );
-    const response = await this.request<{ totalImpactos?: number; totalImpacts?: number }>(
+    const response = await this.request<AudienceImpactResponse>(
       '/survey/impacts/advanced',
       token,
       {
@@ -513,8 +535,25 @@ export class UmmixClient {
         }),
       },
     );
+    const totalImpacts = Number(response.totalImpactos ?? response.totalImpacts ?? 0);
+    const upstreamRespondents = Number(
+      response.totalRespondentes ?? response.totalRespondents ?? Number.NaN,
+    );
+    this.logger?.info(
+      {
+        diagnostic: 'campaign-assistant-audience-impact-result',
+        channel,
+        totalImpacts: Number.isFinite(totalImpacts) ? totalImpacts : 0,
+        upstreamRespondents: Number.isFinite(upstreamRespondents) ? upstreamRespondents : null,
+        appliedFilterCount: Array.isArray(response.filtrosAplicados)
+          ? response.filtrosAplicados.length
+          : null,
+      },
+      '[campaign-assistant-diagnostic] audience impact result',
+    );
     return {
-      totalImpacts: Number(response.totalImpactos ?? response.totalImpacts ?? 0),
+      totalImpacts: Number.isFinite(totalImpacts) ? totalImpacts : 0,
+      upstreamRespondents: Number.isFinite(upstreamRespondents) ? upstreamRespondents : null,
     };
   }
 
@@ -560,29 +599,48 @@ function isAudienceQuestion(question: QuestionResponse): boolean {
   // não o tipo textual da pergunta.
   if (!hasActiveOptions) return false;
 
-  // As perguntas de Perfil & Hábitos também usam `campaign_creation` no
-  // Services. A categoria de alcance é a fonte preferencial para excluir as
-  // perguntas operacionais sem descartar filtros legítimos como "Estado civil"
-  // ou "Consumo de rádio".
-  if (normalizedCategory === 'alcance_campanha') return false;
-
   const operationalTitle =
-    /^(selecione|escolha|informe|defina)\s+(o|a|os|as)?\s*(estado|cidade|pra[cç]a|canal|formato|dura[cç][aã]o|investimento|or[cç]amento|objetivo)\b/.test(
+    /^(selecione|escolha|informe|defina)\s+(o|a|os|as)?\s*(estado(?!\s+civil\b)|cidade|pra[cç]a|canal|formato|dura[cç][aã]o|investimento|or[cç]amento|objetivo)\b/.test(
       normalizedTitle,
     ) ||
     /^escolha\s+(radio|tv)\s+(ou|\/)/.test(normalizedTitle) ||
     /\bcanal\s+(da|de|para)\s+(campanha|veicula[cç][aã]o|m[ií]dia)\b/.test(normalizedTitle) ||
-    /^(qual|qual e|qual o|qual a)\s+(o|a|os|as)?\s*(estado|cidade|pra[cç]a|canal|formato|dura[cç][aã]o|investimento|or[cç]amento|objetivo)\b.*\bcampanha\b/.test(
+    /^(qual|qual e|qual o|qual a)\s+(o|a|os|as)?\s*(estado(?!\s+civil\b)|cidade|pra[cç]a|canal|formato|dura[cç][aã]o|investimento|or[cç]amento|objetivo)\b.*\bcampanha\b/.test(
       normalizedTitle,
     );
 
+  // As perguntas de Perfil & Hábitos também usam `campaign_creation` no
+  // Services. Para não perder filtros novos cadastrados na mesma categoria,
+  // só excluímos títulos claramente operacionais (cidade/estado/praça/canal);
+  // qualquer outra pergunta ativa com opções continua no catálogo genérico.
+  const categoryOperationalTitle =
+    /^(estado(?!\s+civil\b)|cidade|pra[cç]a|canal|formato|dura[cç][aã]o|investimento|or[cç]amento|objetivo|per[ií]odo)\b/.test(
+      normalizedTitle,
+    );
+  if (normalizedCategory === 'alcance_campanha' && categoryOperationalTitle) {
+    return false;
+  }
+
   return !operationalTitle;
+}
+
+function readQuestionFieldKey(question: QuestionResponse): string | null {
+  const direct = typeof question.fieldKey === 'string' ? question.fieldKey.trim() : '';
+  if (direct) return direct;
+  const configured = [
+    question.config?.fieldKey,
+    question.config?.field,
+    question.config?.key,
+    question.config?.slug,
+    question.config?.code,
+  ].find((value): value is string => typeof value === 'string' && value.trim().length > 0);
+  return configured?.trim() ?? null;
 }
 
 function summarizeAudienceCatalog(
   questions: QuestionResponse[],
   options: AudienceCatalogOption[],
-): Record<string, number | boolean> {
+): Record<string, number | boolean | string[]> {
   const questionLabels = options.map((option) =>
     normalize(`${option.question} ${option.questionOriginal ?? ''}`),
   );
@@ -592,6 +650,16 @@ function summarizeAudienceCatalog(
     audienceOptionCount: options.length,
     hasGenderDimension: questionLabels.some((label) => /sexo|genero|\bgender\b/.test(label)),
     hasAgeDimension: questionLabels.some((label) => /\bidade\b|faixa etaria|\banos\b|\bage\b/.test(label)),
+    catalogFieldKeys: [...new Set(
+      options
+        .map((option) => option.fieldKey?.trim())
+        .filter((fieldKey): fieldKey is string => Boolean(fieldKey)),
+    )].sort(),
+    catalogCategories: [...new Set(
+      options
+        .map((option) => option.category?.trim())
+        .filter((category): category is string => Boolean(category)),
+    )].sort(),
   };
 }
 
@@ -683,6 +751,42 @@ export function groupAudienceFilters(filters: AudienceFilterSelection[]) {
 }
 
 function isStoredDemographicFilter(filter: AudienceFilterSelection): boolean {
+  const fieldKey = normalize(filter.fieldKey ?? '').replace(/[^a-z0-9]+/g, '');
+  if (
+    [
+      'sexo',
+      'genero',
+      'gender',
+      'idade',
+      'idadefaixa',
+      'idadefaixas',
+      'faixaetaria',
+      'faixaetarias',
+      'regiao',
+      'regioes',
+      'bairro',
+      'escolaridade',
+      'instrucao',
+      'ensino',
+      'religiao',
+      'renda',
+      'salario',
+      'classeeconomica',
+      'ocupacao',
+      'profissao',
+      'corraca',
+      'raca',
+      'etnia',
+      'possuifilhos',
+      'filhos',
+      'trabalhaestudafora',
+      'trabalhaouestudafora',
+      'diasemanaradio',
+      'diasemanatv',
+    ].includes(fieldKey)
+  ) {
+    return true;
+  }
   const searchable = normalize(`${filter.question} ${filter.questionOriginal ?? ''}`);
   return /\bsexo\b|\bgenero\b|\bidade\b|faixa etaria|regiao|bairro|escolaridade|instrucao|ensino|religiao|renda|salario|classe economica|ocupacao|profissao|\bcor\b|\braca\b|\betnia\b|possui filhos|filh|trabalha ou estuda fora|dias.*radio|radio.*dias|dias.*tv|tv.*dias/.test(searchable);
 }

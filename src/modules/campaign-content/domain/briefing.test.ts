@@ -22,13 +22,31 @@ const snapshot = (objective: string): CampaignContentCampaignSnapshot => ({
 });
 
 describe('campaign content briefing rules', () => {
-  it('asks for product details when the objective promotes an offer', () => {
+  it('asks for the public fantasy name before the other briefing fields', () => {
     expect(missingBriefingFields(snapshot('promocao_oferta'), {})).toEqual([
+      'brand_name',
       'product_or_service',
       'target_audience',
-      'main_benefit',
       'offer_details',
       'validity',
+      'main_benefit',
+      'call_to_action',
+      'tone',
+      'restrictions',
+    ]);
+    expect(questionForBriefingField('brand_name')).toBe(
+      'Qual o nome Fantasia da empresa que devemos divulgar?',
+    );
+  });
+
+  it('asks for product details when the objective promotes an offer', () => {
+    expect(missingBriefingFields(snapshot('promocao_oferta'), {})).toEqual([
+      'brand_name',
+      'product_or_service',
+      'target_audience',
+      'offer_details',
+      'validity',
+      'main_benefit',
       'call_to_action',
       'tone',
       'restrictions',
@@ -38,7 +56,7 @@ describe('campaign content briefing rules', () => {
   it('does not repeat an answered field and stores the next response safely', () => {
     const answers = applyDeterministicAnswer(
       snapshot('lancamento_produto'),
-      {},
+      { brand_name: 'Marca teste' },
       'product_or_service',
       'Produto com <informação> que será divulgado',
     );

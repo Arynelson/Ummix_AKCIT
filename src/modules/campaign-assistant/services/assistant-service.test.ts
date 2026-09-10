@@ -424,6 +424,230 @@ describe('AssistantService finalization', () => {
     ]);
   });
 
+  it('keeps the full dynamic catalog for an audience refinement after the flow advances', async () => {
+    const location = { cityId: 'city', cityName: 'Goiânia', stateUf: 'GO' };
+    const state = {
+      ...initialState(100, 'varejo', [location]),
+      productService: 'Consultoria',
+      objective: 'reconhecimento_marca' as const,
+      audienceDescription: 'profissionais autonomos',
+      maximumBudget: 100,
+      location,
+      locations: [location],
+    };
+    const session = {
+      id: '93203443-1fe8-45d0-a90d-8ec96ba8042f',
+      userId: '856918db-6f3d-4375-a95c-715177012cca',
+      userType: 'regular_client',
+      clientId: '7ed901e4-3adf-45f4-a60d-17908424045f',
+      clientSnapshot: {
+        id: '7ed901e4-3adf-45f4-a60d-17908424045f',
+        fullName: 'Cliente',
+        companyName: 'Empresa',
+        companyBrand: 'Marca',
+        businessActivity: 'varejo',
+        isActive: true,
+      },
+      status: 'collecting',
+      state,
+      messages: [],
+      finalizedCampaignId: null,
+      finalizedAt: null,
+      reviewReachedAt: null,
+      expiresAt: '2099-01-01T00:00:00.000Z',
+      createdAt: '2026-08-18T00:00:00.000Z',
+      updatedAt: '2026-08-18T00:00:00.000Z',
+      version: 1,
+    } as AssistantSession;
+    const catalog = [
+      {
+        questionId: 'occupation-question',
+        question: 'Ocupação',
+        category: 'perfil_habitos',
+        optionId: 'occupation-self-employed',
+        option: 'Autônomo e Profissional Liberal',
+      },
+      {
+        questionId: 'children-question',
+        question: 'Possui Filhos',
+        category: 'perfil_habitos',
+        optionId: 'children-yes',
+        option: 'Sim',
+      },
+      {
+        questionId: 'animals-question',
+        question: 'Possui Animais de Estimação',
+        category: 'perfil_habitos',
+        optionId: 'animals-yes',
+        option: 'Sim',
+      },
+      {
+        questionId: 'content-question',
+        question: 'Preferência de conteúdo',
+        category: 'perfil_habitos',
+        optionId: 'content-cinema',
+        option: 'Cinema',
+      },
+    ];
+    let savedState = state;
+    const repository = {
+      findOwned: vi.fn().mockResolvedValue(session),
+      countRecentMessages: vi.fn().mockResolvedValue(0),
+      trackMetric: vi.fn().mockResolvedValue(undefined),
+      saveTurn: vi.fn().mockImplementation(async (input) => {
+        savedState = input.state;
+        return {
+          ...session,
+          state: input.state,
+          messages: input.messages,
+          version: 2,
+        };
+      }),
+    };
+    const ummix = { getAudienceCatalog: vi.fn().mockResolvedValue(catalog) };
+    const extractor = {
+      extract: vi.fn().mockRejectedValue(new OpenAIUnavailableError()),
+    };
+    const service = new AssistantService(
+      config,
+      repository as never,
+      ummix as never,
+      extractor as never,
+    );
+
+    await service.sendMessage({
+      id: session.id,
+      token: 'redacted',
+      user: {
+        id: session.userId,
+        fullName: 'Cliente',
+        role: 'user',
+        userType: 'regular_client',
+      },
+      // "Cinema" não depende de uma palavra-chave fixa; só existe porque
+      // essa opção veio do catálogo remoto.
+      message: 'cinema',
+    });
+
+    expect(extractor.extract).toHaveBeenCalledWith(
+      expect.objectContaining({
+        currentField: 'desiredStartDate',
+        audienceCatalog: expect.arrayContaining(catalog),
+      }),
+    );
+    expect(
+      (extractor.extract.mock.calls[0]?.[0] as { audienceCatalog: unknown[] }).audienceCatalog,
+    ).toHaveLength(catalog.length);
+    expect(savedState.audienceFilters).toEqual([
+      expect.objectContaining({
+        questionId: 'content-question',
+        optionId: 'content-cinema',
+        option: 'Cinema',
+      }),
+    ]);
+  });
+
+  it('does not turn a budget answer into an audience refinement', async () => {
+    const location = { cityId: 'city', cityName: 'Goiânia', stateUf: 'GO' };
+    const state = {
+      ...initialState(100, 'varejo', [location]),
+      productService: 'Consultoria',
+      objective: 'reconhecimento_marca' as const,
+      audienceDescription: 'Mulheres adultas',
+      location,
+      locations: [location],
+    };
+    const session = {
+      id: '93203443-1fe8-45d0-a90d-8ec96ba8042f',
+      userId: '856918db-6f3d-4375-a95c-715177012cca',
+      userType: 'regular_client',
+      clientId: '7ed901e4-3adf-45f4-a60d-17908424045f',
+      clientSnapshot: {
+        id: '7ed901e4-3adf-45f4-a60d-17908424045f',
+        fullName: 'Cliente',
+        companyName: 'Empresa',
+        companyBrand: 'Marca',
+        businessActivity: 'varejo',
+        isActive: true,
+      },
+      status: 'collecting',
+      state,
+      messages: [],
+      finalizedCampaignId: null,
+      finalizedAt: null,
+      reviewReachedAt: null,
+      expiresAt: '2099-01-01T00:00:00.000Z',
+      createdAt: '2026-08-18T00:00:00.000Z',
+      updatedAt: '2026-08-18T00:00:00.000Z',
+      version: 1,
+    } as AssistantSession;
+    let savedState = state;
+    const repository = {
+      findOwned: vi.fn().mockResolvedValue(session),
+      countRecentMessages: vi.fn().mockResolvedValue(0),
+      trackMetric: vi.fn().mockResolvedValue(undefined),
+      saveTurn: vi.fn().mockImplementation(async (input) => {
+        savedState = input.state;
+        return {
+          ...session,
+          state: input.state,
+          messages: input.messages,
+          version: 2,
+        };
+      }),
+    };
+    const ummix = {
+      getAudienceCatalog: vi.fn().mockResolvedValue([{
+        questionId: 'content-question',
+        question: 'Preferência de conteúdo',
+        category: 'perfil_habitos',
+        optionId: 'content-cinema',
+        option: 'Cinema',
+      }]),
+    };
+    const extractor = {
+      extract: vi.fn().mockResolvedValue({
+        productService: null,
+        objective: null,
+        audienceDescription: null,
+        audienceFilters: [],
+        audienceAlternatives: [],
+        cityName: null,
+        stateUf: null,
+        maximumBudget: 5000,
+        desiredStartDate: null,
+        selectedChannel: null,
+      }),
+    };
+    const service = new AssistantService(
+      config,
+      repository as never,
+      ummix as never,
+      extractor as never,
+    );
+
+    await service.sendMessage({
+      id: session.id,
+      token: 'redacted',
+      user: {
+        id: session.userId,
+        fullName: 'Cliente',
+        role: 'user',
+        userType: 'regular_client',
+      },
+      message: 'meu orçamento é de R$ 5.000',
+    });
+
+    expect(extractor.extract).toHaveBeenCalledWith(
+      expect.objectContaining({
+        currentField: 'maximumBudget',
+        audienceCatalog: [],
+      }),
+    );
+    expect(savedState.audienceDescription).toBe('Mulheres adultas');
+    expect(savedState.maximumBudget).toBe(5000);
+  });
+
   it('persists explicit gender and age filters when the LLM is unavailable', async () => {
     const location = { cityId: 'city', cityName: 'Goiânia', stateUf: 'GO' };
     const state = {

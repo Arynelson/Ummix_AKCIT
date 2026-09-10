@@ -242,7 +242,7 @@ export class CampaignContentService {
       mediaChannel: session.session.campaignSnapshot.mediaChannel,
       contentFormat: session.session.campaignSnapshot.format,
       modelName: this.config.OPENAI_MODEL,
-      promptVersion: 'campaign-content-pt-br-v1',
+      promptVersion: 'campaign-content-pt-br-v2',
     });
     if (reserved.kind === 'not_found') {
       throw new CampaignContentHttpError(404, 'Sessao de conteudo nao encontrada.');

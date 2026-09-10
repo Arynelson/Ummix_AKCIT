@@ -36,6 +36,7 @@ interface AudienceSelectionSummary {
   question: string;
   answers: string[];
   questionOriginal?: string;
+  fieldKey?: string;
 }
 
 const CANONICAL_VALUES: Partial<Record<AudienceField, string[]>> = {
@@ -118,6 +119,58 @@ const CANONICAL_VALUES: Partial<Record<AudienceField, string[]>> = {
     'Familiar envolvido',
     'Consumo regular de produtos do agro local',
   ],
+};
+
+// O admin pode informar uma chave estável no catálogo sem depender do texto
+// visível da pergunta. Somente chaves conhecidas entram no shape estruturado;
+// qualquer chave nova ou desconhecida continua sendo enviada como resposta
+// genérica e allowlistada pelo catálogo remoto.
+const FIELD_KEY_ALIASES: Record<string, AudienceField> = {
+  sexo: 'gender',
+  genero: 'gender',
+  gender: 'gender',
+  idade: 'idadeFaixas',
+  idadefaixa: 'idadeFaixas',
+  idadefaixas: 'idadeFaixas',
+  faixaetaria: 'idadeFaixas',
+  faixaetarias: 'idadeFaixas',
+  possuifilhos: 'filhos',
+  filhos: 'filhos',
+  animais: 'animais',
+  animal: 'animais',
+  ocupacao: 'ocupacao',
+  profissao: 'ocupacao',
+  renda: 'renda',
+  preferenciadeconteudo: 'preferenciaConteudo',
+  preferenciaconteudo: 'preferenciaConteudo',
+  consumomidia: 'consumoMidia',
+  escolaridade: 'escolaridade',
+  religiao: 'religiao',
+  corraca: 'corRaca',
+  cor: 'corRaca',
+  raca: 'corRaca',
+  regiao: 'regiao',
+  regioes: 'regiao',
+  planosaude: 'planoSaude',
+  atividadesfisicas: 'atividadesFisicas',
+  seguroautomovel: 'seguroAutomovel',
+  agronegocio: 'agronegocio',
+  trabalhaestudafora: 'trabalhaEstudaFora',
+  trabalhaouestudafora: 'trabalhaEstudaFora',
+  diasemanaradio: 'diasSemanaRadio',
+  diasemanatv: 'diasSemanaTv',
+  diasemanamidia: 'diasSemanaMidia',
+  aprovagestaofederal: 'aprovaGestaoFederal',
+  pretendecomprarauto: 'pretendeComprarAuto',
+  pretendecomprarautomovel: 'pretendeComprarAuto',
+  pretendecomprarimovel: 'pretendeComprarImovel',
+  tipoenergiaresidencial: 'tipoEnergiaResidencial',
+  tipoimovel: 'tipoImovel',
+  valorimovel: 'valorImovel',
+  tipoautomovel: 'tipoAutomovel',
+  categoriaautomovel: 'categoriaAutomovel',
+  valorautomovel: 'valorAutomovel',
+  modalidadeagro: 'modalidadeAgro',
 };
 
 const INCOME_RANGES = [
@@ -224,6 +277,9 @@ export function mapAudienceFiltersToTargetAudience(
     if (filter.questionOriginal && !grouped.questionOriginal) {
       grouped.questionOriginal = filter.questionOriginal;
     }
+    if (filter.fieldKey && !grouped.fieldKey) {
+      grouped.fieldKey = filter.fieldKey;
+    }
     if (!grouped.answers.includes(option)) grouped.answers.push(option);
     selections.set(filter.questionId, grouped);
 
@@ -253,9 +309,10 @@ export function mapAudienceFiltersToTargetAudience(
   }
 
   if (selections.size > 0) {
-    target.selections = [...selections.values()].map(({ question, questionOriginal, answers }) => ({
+    target.selections = [...selections.values()].map(({ question, questionOriginal, fieldKey, answers }) => ({
       question,
       ...(questionOriginal ? { questionOriginal } : {}),
+      ...(fieldKey ? { fieldKey } : {}),
       answers,
     }));
   }
@@ -300,6 +357,7 @@ export function inferNaturalAudienceFilters(
         questionId: option.questionId,
         question: option.question,
         ...(option.questionOriginal ? { questionOriginal: option.questionOriginal } : {}),
+        ...(option.fieldKey ? { fieldKey: option.fieldKey } : {}),
         ...(option.category !== undefined ? { category: option.category } : {}),
         optionId: option.optionId,
         option: option.option,
@@ -317,6 +375,7 @@ export function inferNaturalAudienceFilters(
           questionId: option.questionId,
           question: option.question,
           ...(option.questionOriginal ? { questionOriginal: option.questionOriginal } : {}),
+          ...(option.fieldKey ? { fieldKey: option.fieldKey } : {}),
           ...(option.category !== undefined ? { category: option.category } : {}),
           optionId: option.optionId,
           option: option.option,
@@ -330,6 +389,7 @@ export function inferNaturalAudienceFilters(
         questionId: option.questionId,
         question: option.question,
         ...(option.questionOriginal ? { questionOriginal: option.questionOriginal } : {}),
+        ...(option.fieldKey ? { fieldKey: option.fieldKey } : {}),
         ...(option.category !== undefined ? { category: option.category } : {}),
         optionId: option.optionId,
         option: option.option,
@@ -551,7 +611,18 @@ function naturalAliases(field: AudienceField, option: string): string[] {
   switch (field) {
     case 'ocupacao':
       if (/autonom|profissional liberal/.test(option)) {
-        return ['autonomo', 'autonoma', 'profissional liberal', 'profissionais liberais', 'freelancer'];
+        return [
+          'autonomo',
+          'autonoma',
+          'autonomos',
+          'autonomas',
+          'profissional autonomo',
+          'profissionais autonomos',
+          'profissional liberal',
+          'profissionais liberais',
+          'por conta propria',
+          'freelancer',
+        ];
       }
       if (/setor privado/.test(option)) return ['empresa privada', 'iniciativa privada', 'carteira assinada'];
       if (/setor publico/.test(option)) return ['servidor publico', 'funcionario publico', 'concursado'];
@@ -763,8 +834,10 @@ function withCoreDemographicCatalog(
 }
 
 function resolveAudienceField(
-  filter: Pick<AudienceFilterSelection, 'question' | 'questionOriginal'>,
+  filter: Pick<AudienceFilterSelection, 'question' | 'questionOriginal' | 'fieldKey'>,
 ): AudienceField | null {
+  const metadataField = normalizeFieldKey(filter.fieldKey);
+  if (metadataField) return metadataField;
   const searchable = normalize(`${filter.question} ${filter.questionOriginal ?? ''}`);
   const compactSearchable = searchable.replace(/[^a-z0-9]+/g, '');
 
@@ -862,6 +935,11 @@ function resolveAudienceField(
     return 'preferenciaConteudo';
   }
   return null;
+}
+
+function normalizeFieldKey(value: string | undefined): AudienceField | null {
+  if (!value?.trim()) return null;
+  return FIELD_KEY_ALIASES[compactAudienceValue(value)] ?? null;
 }
 
 function canonicalizeValue(field: AudienceField, value: string): string | null {

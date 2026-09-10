@@ -197,15 +197,26 @@ export class AssistantService {
           ? 'audienceConfirmation'
           : missingFields(nextState)[0] ?? null;
         const referenceDate = currentDateInBrazil();
+        // A resposta pode refinar um público já informado mesmo depois de a
+        // máquina ter avançado para orçamento ou data. A decisão usa o
+        // catálogo completo para não depender de uma lista fixa de palavras
+        // (que inevitavelmente ficaria defasada quando o Services ganhar um
+        // novo filtro).
+        const hasCatalogMatch = inferNaturalAudienceFilters(
+          input.message,
+          fullAudienceCatalog,
+        ).length > 0;
+        const isAudienceTurn = shouldUseAudienceCatalog(
+          input.message,
+          currentField,
+          nextState,
+          hasCatalogMatch,
+        );
         const audienceCatalog = selectAudienceCatalog(
           input.message,
           fullAudienceCatalog,
-          currentField === 'audienceDescription' || currentField === 'audienceConfirmation',
+          isAudienceTurn,
         );
-        const isAudienceTurn =
-          currentField === 'audienceDescription' ||
-          currentField === 'audienceConfirmation' ||
-          Boolean(nextState.audienceDescription && currentField === null);
         let inferredFilters = isAudienceTurn
           ? inferNaturalAudienceFilters(input.message, audienceCatalog)
           : [];
@@ -796,6 +807,7 @@ function validateAudiencePatch(
         optionId: option.optionId,
         option: option.option,
         ...(option.questionOriginal ? { questionOriginal: option.questionOriginal } : {}),
+        ...(option.fieldKey ? { fieldKey: option.fieldKey } : {}),
         ...(option.category !== undefined ? { category: option.category } : {}),
       },
     ]),
@@ -945,9 +957,63 @@ function selectAudienceCatalog(
   return ranked.length > 0 ? ranked.map((item) => item.option) : catalog;
 }
 
+function shouldUseAudienceCatalog(
+  message: string,
+  currentField: string | null,
+  state: CampaignState,
+  hasCatalogMatch: boolean,
+): boolean {
+  if (currentField === 'audienceDescription' || currentField === 'audienceConfirmation') {
+    return true;
+  }
+  if (!state.audienceDescription) return false;
+
+  // Estas respostas pertencem a outras etapas e não devem substituir a
+  // descrição do público nem transformar palavras como "rádio" em um filtro
+  // de consumo de mídia.
+  if (['objective', 'location', 'category', 'selectedChannel'].includes(currentField ?? '')) {
+    return false;
+  }
+
+  // Uma correspondência do próprio catálogo ou um marcador explícito de
+  // público vence a heurística de orçamento/data. Isso permite frases como
+  // "clientes com renda acima de 5 mil" sem perder o filtro de renda.
+  if (hasCatalogMatch || mentionsAudience(message)) return true;
+  if (currentField === 'maximumBudget') return !isBudgetOnlyAnswer(message);
+  if (currentField === 'desiredStartDate') return !isDateOnlyAnswer(message);
+
+  // Para qualquer pergunta não operacional, manter o catálogo disponível é
+  // mais seguro que presumir que um filtro novo não existe.
+  return true;
+}
+
+function isBudgetOnlyAnswer(message: string): boolean {
+  const normalized = normalizeText(message).replace(/\s+/g, ' ').trim();
+  if (!normalized || !/\d|\bmil\b|\bmilh(?:ao|oes)\b/.test(normalized)) return false;
+  if (/public|pessoa|cliente|mulher|homem|femin|mascul|profiss|ocup|renda|filh|animal|pet/.test(normalized)) {
+    return false;
+  }
+
+  const amount = String.raw`(?:r\$\s*)?(?:\d{1,3}(?:\.\d{3})+(?:,\d{1,2})?|\d+(?:,\d{1,2})?)(?:\s*(?:reais?|mil|milhao|milhoes))?`;
+  return new RegExp(
+    String.raw`^(?:(?:meu|minha)\s+)?(?:orcamento|investimento|teto|verba|valor)?\s*(?:(?:e|de|:)\s*)*${amount}\s*$`,
+  ).test(normalized) || new RegExp(String.raw`^(?:ate|no maximo)\s+${amount}$`).test(normalized);
+}
+
+function isDateOnlyAnswer(message: string): boolean {
+  const normalized = normalizeText(message).replace(/\s+/g, ' ').trim();
+  if (!normalized) return false;
+  if (/public|pessoa|cliente|mulher|homem|femin|mascul|profiss|ocup|renda|filh|animal|pet/.test(normalized)) {
+    return false;
+  }
+  return /\b(?:hoje|amanha|dia|data|semana|mes|segunda|terca|quarta|quinta|sexta|sabado|domingo|rapido|breve|urgente)\b/.test(normalized)
+    || /\b\d{1,2}[/-]\d{1,2}(?:[/-]\d{2,4})?\b/.test(normalized);
+}
+
 function mentionsAudience(message: string): boolean {
-  return /p[uú]blico|alcan[cç]ar|idade|anos|mulher|homem|femin|mascul|renda|classe|fam[ií]lia|interessad|cliente/i.test(
-    message,
+  const normalized = normalizeText(message);
+  return /public|pessoa|perfil|alcanc|idade|anos|mulher|homem|femin|mascul|renda|classe|famili|interessad|cliente|autonom|ocup|profiss|filh|animal|pet|estimac|plano|saude|exerc|academ|agro|rural|relig|rac|etnia|escolar|ensino|midia|conteud|imovel|casa|automovel|carro|seguro|energia|governo|presidente|comprar/.test(
+    normalized,
   );
 }
 

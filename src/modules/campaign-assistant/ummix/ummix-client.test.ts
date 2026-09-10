@@ -228,6 +228,14 @@ describe('Ummix audience catalog', () => {
             options: [{ id: 'single-option', text: 'Solteiro(a)' }],
           },
           {
+            id: 'marital-status-inform-question',
+            title: 'Informe seu estado civil',
+            category: 'perfil_habitos',
+            stage: 'auto_preenchimento',
+            type: 'single_choice',
+            options: [{ id: 'married-option', text: 'Casado(a)' }],
+          },
+          {
             id: 'radio-consumption-question',
             title: 'Com que frequência você ouve rádio?',
             category: 'midia',
@@ -278,6 +286,13 @@ describe('Ummix audience catalog', () => {
         option: 'Solteiro(a)',
       },
       {
+        questionId: 'marital-status-inform-question',
+        question: 'Informe seu estado civil',
+        category: 'perfil_habitos',
+        optionId: 'married-option',
+        option: 'Casado(a)',
+      },
+      {
         questionId: 'radio-consumption-question',
         question: 'Com que frequência você ouve rádio?',
         category: 'midia',
@@ -292,6 +307,123 @@ describe('Ummix audience catalog', () => {
         option: 'R$ 2.000 - R$ 5.000',
       },
     ]);
+  });
+
+  it('preserves stable field metadata for newly added segmentation questions', async () => {
+    vi.stubGlobal(
+      'fetch',
+      vi.fn().mockResolvedValue({
+        ok: true,
+        status: 200,
+        json: async () => [
+          {
+            id: 'health-question',
+            title: 'Plano de saúde',
+            category: 'perfil_habitos',
+            config: {
+              fieldKey: 'plano_saude',
+              originalExcelColumn: 'S1. Você possui algum plano de saúde privado?',
+            },
+            options: [{ id: 'health-option', text: 'Sim' }],
+          },
+          {
+            id: 'energy-question',
+            title: 'Energia residencial',
+            category: 'perfil_habitos',
+            config: { slug: 'tipo_energia_residencial' },
+            options: [{ id: 'energy-option', text: 'Painel Solar' }],
+          },
+        ],
+      }),
+    );
+
+    const catalog = await new UmmixClient(
+      'https://services.test',
+      'integration-service-token',
+    ).getAudienceCatalog('user-token');
+
+    expect(catalog).toEqual([
+      expect.objectContaining({
+        questionId: 'health-question',
+        questionOriginal: 'S1. Você possui algum plano de saúde privado?',
+        fieldKey: 'plano_saude',
+      }),
+      expect.objectContaining({
+        questionId: 'energy-question',
+        fieldKey: 'tipo_energia_residencial',
+      }),
+    ]);
+  });
+});
+
+describe('Ummix audience impact diagnostics', () => {
+  afterEach(() => {
+    vi.unstubAllGlobals();
+  });
+
+  it('logs weighted impacts separately from the upstream respondent count', async () => {
+    const logger = {
+      info: vi.fn(),
+      warn: vi.fn(),
+    };
+    vi.stubGlobal(
+      'fetch',
+      vi.fn().mockImplementation(async (url: string) => {
+        if (url.endsWith('/campaigns/calculate')) {
+          return {
+            ok: true,
+            status: 200,
+            json: async () => ({
+              suggestedFrequency: 66,
+              suggestedPeriod: 4,
+              cpm: 100,
+              totalImpressions: 10000,
+              inventory: 151,
+              projectedLeads: 10,
+              projectedSales: 1,
+            }),
+          };
+        }
+        return {
+          ok: true,
+          status: 200,
+          json: async () => ({
+            totalImpactos: 123456.75,
+            totalRespondentes: 9876,
+            filtrosAplicados: [{ pergunta: 'Sexo' }],
+          }),
+        };
+      }),
+    );
+
+    const comparison = await new UmmixClient(
+      'https://services.test',
+      'integration-service-token',
+      logger,
+    ).compareChannels('user-token', {
+      objective: 'reconhecimento_marca',
+      category: 'varejo',
+      brandStrength: 'regional',
+      durationSeconds: 15,
+      maximumBudget: 1000,
+      locations: [{ cityId: 'city-id', cityName: 'Goiânia', stateUf: 'GO' }],
+      audienceFilters: [],
+    } as CampaignState);
+
+    expect(comparison.radio.audienceImpacts).toBe(123456.75);
+    expect(comparison.tv.audienceImpacts).toBe(123456.75);
+    const resultLogs = logger.info.mock.calls
+      .map(([bindings, message]) => ({ bindings, message }))
+      .filter(({ bindings }) => bindings.diagnostic === 'campaign-assistant-audience-impact-result');
+
+    expect(resultLogs).toHaveLength(2);
+    expect(resultLogs[0]).toMatchObject({
+      bindings: {
+        totalImpacts: 123456.75,
+        upstreamRespondents: 9876,
+        appliedFilterCount: 1,
+      },
+    });
   });
 });
 
