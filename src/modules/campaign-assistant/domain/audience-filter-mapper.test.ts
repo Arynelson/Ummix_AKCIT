@@ -141,6 +141,26 @@ describe('audience filter mapper', () => {
     ]);
   });
 
+  it('recognizes an occupation option even when the catalog question has no semantic title', () => {
+    const result = inferNaturalAudienceFilters('profissionais autonomos', [
+      {
+        questionId: 'occupation-question',
+        question: 'Público-alvo',
+        category: 'publico_alvo',
+        optionId: 'occupation-self-employed',
+        option: 'Autônomo e Profissional Liberal',
+      },
+    ]);
+
+    expect(result).toEqual([
+      expect.objectContaining({
+        questionId: 'occupation-question',
+        optionId: 'occupation-self-employed',
+        option: 'Autônomo e Profissional Liberal',
+      }),
+    ]);
+  });
+
   it('recognizes every explicit filter from one audience sentence', () => {
     const result = inferNaturalAudienceFilters('possuem filhos e animais de estimação', [
       {

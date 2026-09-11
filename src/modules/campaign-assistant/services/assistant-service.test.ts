@@ -3,7 +3,7 @@ import type { AppConfig } from '../../../config.js';
 import type { AssistantSession } from '../domain/types.js';
 import { initialState } from '../domain/state-machine.js';
 import { OpenAIUnavailableError } from '../openai/extractor.js';
-import { AssistantService } from './assistant-service.js';
+import { AssistantService, contractPlanToBudget } from './assistant-service.js';
 
 const config: AppConfig = {
   NODE_ENV: 'test',
@@ -24,6 +24,24 @@ const config: AppConfig = {
 };
 
 describe('AssistantService finalization', () => {
+  it('never contracts more impressions than the hard budget can pay for', () => {
+    const result = contractPlanToBudget(5000, {
+      cpm: 31.5,
+      frequency: 66,
+      audienceImpacts: 2775,
+      inventory: 2775,
+    } as never);
+
+    expect(result).toEqual({
+      frequency: 66,
+      totalReach: 2405,
+      totalImpressions: 158730,
+      totalInvestment: 5000,
+    });
+    expect(Math.round((result.totalImpressions * 31.5 / 1000) * 100) / 100).toBe(result.totalInvestment);
+    expect(result.totalInvestment).toBeLessThanOrEqual(5000);
+  });
+
   it('returns the same campaign without creating a second draft', async () => {
     const completedSession = {
       id: '93203443-1fe8-45d0-a90d-8ec96ba8042f',

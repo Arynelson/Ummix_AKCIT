@@ -58,12 +58,25 @@ interface QuestionResponse {
   title?: string;
   label?: string;
   fieldKey?: string;
+  field_key?: string;
+  key?: string;
+  slug?: string;
+  code?: string;
+  originalExcelColumn?: string;
+  originalQuestion?: string;
+  questionOriginal?: string;
   category?: string | null;
   options?: QuestionOptionResponse[];
   stage?: string;
   type?: string;
   config?: {
     originalExcelColumn?: string;
+    original_excel_column?: string;
+    originalQuestion?: string;
+    original_question?: string;
+    questionOriginal?: string;
+    question_original?: string;
+    field_key?: string;
     originalCategory?: string;
     [key: string]: unknown;
   } | null;
@@ -272,14 +285,13 @@ export class UmmixClient {
     }
     const options = questions.filter(isAudienceQuestion).flatMap((question) => {
       const fieldKey = readQuestionFieldKey(question);
+      const questionOriginal = readQuestionOriginal(question);
       return (question.options ?? [])
         .filter((option) => option.is_active !== false)
         .map((option) => ({
           questionId: question.id,
           question: question.title ?? question.label ?? '',
-          ...(question.config?.originalExcelColumn
-            ? { questionOriginal: question.config.originalExcelColumn }
-            : {}),
+          ...(questionOriginal ? { questionOriginal } : {}),
           ...(fieldKey ? { fieldKey } : {}),
           category: question.category ?? null,
           optionId: option.id,
@@ -426,15 +438,14 @@ export class UmmixClient {
     channel: MediaChannel,
   ): Promise<MediaPlan> {
     try {
-      const numFilters = Math.max(
-        1,
-        new Set((state.audienceFilters ?? []).map((filter) => filter.questionId)).size,
-      );
+      const filterDimensions = getAudienceFilterDimensionKeys(state);
+      const numFilters = Math.max(1, filterDimensions.length);
       this.logger?.info(
         {
           diagnostic: 'campaign-assistant-media-plan-input',
           channel,
           numFilters,
+          filterDimensions,
           audienceFilterCount: state.audienceFilters?.length ?? 0,
           locationCount: campaignLocations(state).length,
         },
@@ -513,11 +524,21 @@ export class UmmixClient {
   ): Promise<{ totalImpacts: number; upstreamRespondents: number | null }> {
     const demographics = buildAudienceDemographics(state, channel);
     const responses = groupAudienceFilters(state.audienceFilters ?? []);
+    const filterDimensions = getAudienceFilterDimensionKeys(state);
+    const selectedFilterFieldKeys = Object.keys(
+      mapAudienceFiltersToTargetAudience(state.audienceFilters ?? []),
+    ).filter((key) => key !== 'selections' && key !== 'sexo').sort();
+    const selectedFilterKeys = (state.audienceFilters ?? []).map(
+      (filter) => `${filter.questionId}:${filter.optionId}`,
+    );
     this.logger?.info(
       {
         diagnostic: 'campaign-assistant-audience-impact-payload',
         channel,
         demographicKeys: Object.keys(demographics).sort(),
+        filterDimensions,
+        selectedFilterFieldKeys,
+        selectedFilterKeys,
         genericResponseCount: responses.length,
         audienceFilterCount: state.audienceFilters?.length ?? 0,
       },
@@ -625,16 +646,40 @@ function isAudienceQuestion(question: QuestionResponse): boolean {
 }
 
 function readQuestionFieldKey(question: QuestionResponse): string | null {
-  const direct = typeof question.fieldKey === 'string' ? question.fieldKey.trim() : '';
+  const direct = [
+    question.fieldKey,
+    question.field_key,
+    question.key,
+    question.slug,
+    question.code,
+  ].find((value): value is string => typeof value === 'string' && value.trim().length > 0);
   if (direct) return direct;
   const configured = [
     question.config?.fieldKey,
+    question.config?.field_key,
     question.config?.field,
     question.config?.key,
     question.config?.slug,
     question.config?.code,
   ].find((value): value is string => typeof value === 'string' && value.trim().length > 0);
   return configured?.trim() ?? null;
+}
+
+function readQuestionOriginal(question: QuestionResponse): string | null {
+  const candidates = [
+    question.originalExcelColumn,
+    question.originalQuestion,
+    question.questionOriginal,
+    question.config?.originalExcelColumn,
+    question.config?.original_excel_column,
+    question.config?.originalQuestion,
+    question.config?.original_question,
+    question.config?.questionOriginal,
+    question.config?.question_original,
+  ];
+  return candidates.find(
+    (value): value is string => typeof value === 'string' && value.trim().length > 0,
+  )?.trim() ?? null;
 }
 
 function summarizeAudienceCatalog(
@@ -724,6 +769,13 @@ function hasNonEmptyAudienceValue(
   return value !== null && value !== undefined;
 }
 
+function hasAudienceValue(value: unknown): boolean {
+  if (Array.isArray(value)) return value.some((item) => hasAudienceValue(item));
+  if (typeof value === 'boolean') return true;
+  if (typeof value === 'number') return Number.isFinite(value);
+  return typeof value === 'string' && value.trim().length > 0 && value.trim() !== 'indiferente';
+}
+
 export function groupAudienceFilters(filters: AudienceFilterSelection[]) {
   const grouped = new Map<
     string,
@@ -748,6 +800,105 @@ export function groupAudienceFilters(filters: AudienceFilterSelection[]) {
     opcoes: [...filter.options],
     operador: 'OR' as const,
   }));
+}
+
+/**
+ * Mantém a mesma semântica de `countAudienceFilters` do wizard manual.
+ *
+ * O cálculo de CPM do Services recebe a quantidade de dimensões filtradas,
+ * não a quantidade de opções nem a quantidade de IDs de perguntas. Antes
+ * desta função o assistente contava apenas `questionId`s de
+ * `audienceFilters`, deixando de fora praça/estado e produzindo CPM, alcance
+ * e investimento diferentes para a mesma configuração do wizard.
+ */
+export function getAudienceFilterDimensionKeys(state: CampaignState): string[] {
+  const targetAudience = mapAudienceFiltersToTargetAudience(state.audienceFilters ?? []);
+  const dimensions = new Set<string>();
+  const add = (key: string, value: unknown) => {
+    if (hasAudienceValue(value)) dimensions.add(key);
+  };
+
+  const locations = campaignLocations(state);
+  add('cidade', locations.length > 0 ? locations.map((location) => location.cityId) : []);
+  add(
+    'estado',
+    [...new Set(
+      locations
+        .map((location) => location.stateUf?.trim().toUpperCase())
+        .filter((stateUf): stateUf is string => Boolean(stateUf)),
+    )],
+  );
+
+  // `gender` e `sexo` são aliases da mesma dimensão e contam apenas uma vez.
+  add('gender', targetAudience.gender ?? targetAudience.sexo);
+  for (const key of [
+    'filhos',
+    'animais',
+    'ocupacao',
+    'renda',
+    'idadeFaixas',
+    'preferenciaConteudo',
+    'consumoMidia',
+    'escolaridade',
+    'planoSaude',
+    'atividadesFisicas',
+    'seguroAutomovel',
+    'agronegocio',
+    'aprovaGestaoFederal',
+    'pretendeComprarAuto',
+    'pretendeComprarImovel',
+    'tipoEnergiaResidencial',
+    'diasSemanaMidia',
+    'tipoImovel',
+    'valorImovel',
+    'tipoAutomovel',
+    'categoriaAutomovel',
+    'valorAutomovel',
+    'modalidadeAgro',
+    'religiao',
+    'corRaca',
+    'trabalhaEstudaFora',
+    'diasSemanaRadio',
+    'diasSemanaTv',
+  ]) {
+    add(key, targetAudience[key]);
+  }
+
+  // Perguntas novas que não possuem campo canônico continuam sendo enviadas
+  // em `respostas`. Cada pergunta é uma dimensão, exatamente como no wizard.
+  const dynamicQuestions = new Set<string>();
+  const selections = Array.isArray(targetAudience.selections)
+    ? targetAudience.selections
+    : [];
+  for (const selection of selections) {
+    if (!isRecord(selection)) continue;
+    const question = typeof selection.question === 'string' ? selection.question : '';
+    const questionOriginal = typeof selection.questionOriginal === 'string'
+      ? selection.questionOriginal
+      : '';
+    const answers = selection.answers;
+    if (!question.trim() || !hasAudienceValue(answers)) continue;
+    const searchable = normalize(`${question} ${questionOriginal}`);
+    if (isStructuredAudienceQuestion(searchable)) continue;
+    const key = questionOriginal.trim() || question.trim();
+    dynamicQuestions.add(createHash('sha256').update(key).digest('hex').slice(0, 10));
+  }
+  for (const key of [...dynamicQuestions].sort()) dimensions.add(`dynamic:${key}`);
+
+  return [...dimensions].sort();
+}
+
+export function countAudienceFilterDimensions(state: CampaignState): number {
+  return getAudienceFilterDimensionKeys(state).length;
+}
+
+function isStructuredAudienceQuestion(searchable: string): boolean {
+  // Esta expressão reproduz o predicado publicado em
+  // `ummix-front-develop/src/utils/audienceHelpers.ts`. O assistente mantém
+  // `selections` para que o Services consiga filtrar perguntas dinâmicas;
+  // portanto, a contagem precisa considerar exatamente os mesmos grupos que
+  // o wizard conta na etapa de finalização, inclusive as exceções legadas.
+  return /regiao|bairro|sexo|genero|idade|faixa\s+etaria|escolaridade|instrucao|ensino|religi[aã]o|renda|sal[aá]rio|classe\s+economica|ocup[aã]cao|profiss[aã]o|\bcor\b|\bra[cç]a\b|etnia|filh|animal|plano\s+de\s+saude|atividade\s+fisica|seguro|agro|comprar|automovel|imovel|energia|preferencia.*conteudo|consumo.*midia|dias.*(radio|tv)|radio.*dias|tv.*dias/.test(searchable);
 }
 
 function isStoredDemographicFilter(filter: AudienceFilterSelection): boolean {

@@ -25,6 +25,7 @@ import {
   OpenAIUnavailableError,
 } from '../openai/extractor.js';
 import {
+  getAudienceCatalogWithCoreDemographics,
   inferNaturalAudienceFilters,
   mapAudienceFiltersToTargetAudience,
 } from '../domain/audience-filter-mapper.js';
@@ -218,7 +219,7 @@ export class AssistantService {
           isAudienceTurn,
         );
         let inferredFilters = isAudienceTurn
-          ? inferNaturalAudienceFilters(input.message, audienceCatalog)
+          ? inferNaturalAudienceFilters(input.message, fullAudienceCatalog)
           : [];
         let extractedPatch: ExtractedCampaignPatch;
         try {
@@ -250,25 +251,74 @@ export class AssistantService {
           currentField,
           referenceDate,
         });
-        const validatedPatch = validateAudiencePatch(patch, audienceCatalog);
+        // A lista enviada ao LLM pode ser ranqueada para economizar contexto.
+        // A validação final usa o catálogo completo para não descartar uma
+        // dimensão que não apareceu entre os primeiros candidatos. Os
+        // fallbacks nativos de sexo/idade também entram nessa allowlist.
+        const validatedPatch = validateAudiencePatch(patch, fullAudienceCatalog);
         const effectiveAudienceTurn = isAudienceTurn || Boolean(patch.audienceDescription?.trim());
         if (effectiveAudienceTurn && !isAudienceTurn) {
-          inferredFilters = inferNaturalAudienceFilters(input.message, audienceCatalog);
+          inferredFilters = inferNaturalAudienceFilters(input.message, fullAudienceCatalog);
         }
         const audienceFilters = dedupeAudienceFilters([
           ...(validatedPatch.audienceFilters ?? []),
           ...inferredFilters,
         ]);
+        const llmCandidateKeys = (patch.audienceFilters ?? []).map(
+          (filter) => `${filter.questionId}:${filter.optionId}`,
+        );
+        const validatedKeys = (validatedPatch.audienceFilters ?? []).map(
+          (filter) => `${filter.questionId}:${filter.optionId}`,
+        );
+        const classificationFields = Object.keys(
+          mapAudienceFiltersToTargetAudience(audienceFilters),
+        ).filter((key) => key !== 'selections' && key !== 'sexo').sort();
+        const deterministicKeys = new Set(
+          inferredFilters.map((filter) => `${filter.questionId}:${filter.optionId}`),
+        );
+        const validatedKeySet = new Set(validatedKeys);
+        const filterResolution = audienceFilters.map((filter) => {
+          const key = `${filter.questionId}:${filter.optionId}`;
+          const mappedFields = Object.keys(mapAudienceFiltersToTargetAudience([filter]))
+            .filter((field) => field !== 'selections' && field !== 'sexo')
+            .sort();
+          return {
+            key,
+            source: deterministicKeys.has(key) && validatedKeySet.has(key)
+              ? 'llm+deterministic'
+              : deterministicKeys.has(key)
+                ? 'deterministic'
+                : validatedKeySet.has(key)
+                  ? 'llm'
+                  : 'merged',
+            mappedFields,
+          };
+        });
         this.logger?.info(
           {
             diagnostic: 'campaign-assistant-audience-classification',
             currentField,
             isAudienceTurn: effectiveAudienceTurn,
-            catalogOptionCount: audienceCatalog.length,
+            catalogOptionCount: fullAudienceCatalog.length,
+            llmCatalogOptionCount: audienceCatalog.length,
             validatedFilterCount: validatedPatch.audienceFilters?.length ?? 0,
             inferredFilterCount: inferredFilters.length,
             finalFilterCount: audienceFilters.length,
-            recognizedFields: [...new Set(audienceFilters.map((filter) => filter.questionId))],
+            llmCandidateCount: llmCandidateKeys.length,
+            llmCandidateKeys,
+            validatedKeys,
+            rejectedLlmCandidateCount: Math.max(
+              0,
+              llmCandidateKeys.filter((key) => !validatedKeys.includes(key)).length,
+            ),
+            deterministicFilterKeys: inferredFilters.map(
+              (filter) => `${filter.questionId}:${filter.optionId}`,
+            ),
+            selectedFilterKeys: audienceFilters.map(
+              (filter) => `${filter.questionId}:${filter.optionId}`,
+            ),
+            filterResolution,
+            recognizedFieldKeys: classificationFields,
             llmFallback: fallbackToManual,
           },
           '[campaign-assistant-diagnostic] audience classification',
@@ -542,6 +592,31 @@ export class AssistantService {
     }
 
     const payload = buildCampaignPayload(session, campaignId);
+    const selectedPlan = session.state.selectedChannel && session.state.comparison
+      ? session.state.comparison[session.state.selectedChannel]
+      : null;
+    const contractedImpressions = Number(payload.impressoesContratadas ?? 0);
+    const contractedInvestment = Number(payload.totalInvestment ?? 0);
+    const contractedCostFromImpressions = selectedPlan?.cpm && Number.isFinite(selectedPlan.cpm)
+      ? roundCurrency((contractedImpressions * selectedPlan.cpm) / 1000)
+      : null;
+    this.logger?.info(
+      {
+        diagnostic: 'campaign-assistant-budget-contract',
+        campaignId,
+        maximumBudget: session.state.maximumBudget,
+        cpm: selectedPlan?.cpm ?? null,
+        frequency: payload.frequency,
+        availableAudience: selectedPlan?.audienceImpacts ?? null,
+        contractedReach: payload.totalReach,
+        contractedImpressions: payload.impressoesContratadas,
+        contractedInvestment,
+        contractedCostFromImpressions,
+        budgetInvariant: contractedCostFromImpressions === contractedInvestment &&
+          contractedInvestment <= (session.state.maximumBudget ?? Number.POSITIVE_INFINITY),
+      },
+      '[campaign-assistant-diagnostic] budget contract prepared',
+    );
     await this.ummix.updateCampaign(input.token, campaignId, payload);
     await this.repository.complete(session.id, input.user.id, campaignId);
     await this.repository.trackMetric({
@@ -756,7 +831,7 @@ function buildCampaignPayload(
   };
 }
 
-function contractPlanToBudget(
+export function contractPlanToBudget(
   maximumBudget: number,
   plan: NonNullable<CampaignState['comparison']>['radio'],
 ): {
@@ -772,20 +847,39 @@ function contractPlanToBudget(
   }
 
   const budget = Math.max(0, maximumBudget);
-  const reachByBudget = Math.floor((budget * 1000) / (cpm * frequency));
+  // Primeiro limitamos as impressões pelo teto financeiro e só depois
+  // derivamos alcance. Usar a audiência inteira e aplicar `min(budget,
+  // custo)` no final produzia exatamente o erro observado: o resumo mostrava
+  // impressões que custariam mais do que o investimento informado.
+  const maxAffordableImpressions = Math.floor((budget * 1000) / cpm);
+  const reachByBudget = Math.floor(maxAffordableImpressions / frequency);
   const availableAudience = Math.floor(
     Math.max(0, Number(plan.audienceImpacts ?? plan.inventory ?? 0)),
   );
-  const totalReach = Math.min(reachByBudget, availableAudience);
-  const totalImpressions = totalReach * frequency;
-  const calculatedInvestment = Math.round((totalImpressions * cpm) / 10) / 100;
+  let totalReach = Math.min(reachByBudget, availableAudience);
+  let totalImpressions = totalReach * frequency;
+  let calculatedInvestment = roundCurrency((totalImpressions * cpm) / 1000);
+
+  // O arredondamento para centavos pode ultrapassar o teto por alguns
+  // centavos mesmo quando as impressões estão dentro da divisão real. Reduzir
+  // uma unidade de alcance mantém a identidade do resumo verdadeira e o
+  // teto rígido inclusive no valor exibido.
+  while (totalReach > 0 && calculatedInvestment > budget) {
+    totalReach -= 1;
+    totalImpressions = totalReach * frequency;
+    calculatedInvestment = roundCurrency((totalImpressions * cpm) / 1000);
+  }
 
   return {
     frequency,
     totalReach,
     totalImpressions,
-    totalInvestment: Math.min(budget, calculatedInvestment),
+    totalInvestment: calculatedInvestment,
   };
+}
+
+function roundCurrency(value: number): number {
+  return Math.round((value + Number.EPSILON) * 100) / 100;
 }
 
 function toNonNegativeInteger(value: number | null | undefined, fallback = 0): number {
@@ -798,8 +892,9 @@ function validateAudiencePatch(
   patch: ExtractedCampaignPatch,
   catalog: AudienceCatalogOption[],
 ): ValidatedCampaignPatch {
+  const validationCatalog = getAudienceCatalogWithCoreDemographics(catalog);
   const allowed = new Map(
-    catalog.map((option) => [
+    validationCatalog.map((option) => [
       `${option.questionId}:${option.optionId}`,
       {
         questionId: option.questionId,

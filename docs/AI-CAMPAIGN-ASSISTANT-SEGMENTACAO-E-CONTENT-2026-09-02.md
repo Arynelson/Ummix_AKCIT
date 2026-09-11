@@ -168,3 +168,109 @@ correção. Nenhum commit ou push foi feito.
   LF/CRLF do Windows.
 - `graphify update .`: tentativa feita após a alteração; o ambiente continua
   falhando com `uv trampoline failed to canonicalize script path`.
+
+## Correção financeira e diagnóstico rastreável — 2026-09-11
+
+### Evidência que motivou a correção
+
+O log do Render da versão anterior mostrou que o catálogo remoto tinha 296
+opções, mas não publicava `fieldKey` para as dimensões principais. Também
+mostrou `audienceFilterCount=12` sendo reduzido a `numFilters=3`, porque o
+assistente contava perguntas distintas e não as dimensões usadas pelo wizard
+manual (praça, estado e cada grupo de segmentação).
+
+Isso podia produzir CPM diferente antes mesmo da contratação. Na finalização,
+o erro financeiro era usar toda a audiência como alcance, calcular as
+impressões pela frequência e depois limitar apenas o investimento exibido.
+Para o caso CPM `31,50`, frequência `66`, audiência `2.775` e teto de
+`R$ 5.000,00`, isso gerava `183.150` impressões com um custo real de
+`R$ 5.769,23`.
+
+### Comportamento implementado
+
+- O LLM continua sendo usado, mas sua resposta é validada contra o catálogo
+  completo, não somente contra a lista ranqueada enviada como contexto.
+- A inferência determinística percorre todas as opções e acumula várias
+  dimensões na mesma frase. Inclui aliases para ocupação, gênero, idade,
+  filhos e animais de estimação; não depende de um único filtro por mensagem.
+- IDs estáveis internos de sexo/idade são aceitos somente quando pertencem ao
+  catálogo sintético controlado pelo próprio `ai-api`.
+- A classificação registra, sem texto do cliente, token ou valor de opção,
+  os pares selecionados, a origem (`llm`, `deterministic` ou ambos), os campos
+  canônicos resolvidos e candidatos rejeitados.
+- O payload de impactos registra as dimensões, campos nativos e quantidade de
+  respostas genéricas enviadas ao Services. O retorno mantém separados
+  `totalImpacts` (impacto ponderado) e `upstreamRespondents` (linhas retornadas
+  pelo upstream).
+- `numFilters` passa a contar dimensões de audiência, e não quantidade de
+  opções nem apenas IDs de perguntas. O cálculo inclui cidade, estado,
+  gênero, idade, campos canônicos e perguntas dinâmicas. Como o wizard atual
+  também reconta `selections` na etapa de finalização, o predicado dessa
+  contagem foi mantido compatível com o helper publicado no frontend de
+  terceiros, inclusive suas exceções legadas; isso evita um segundo CPM para a
+  mesma campanha enquanto esse helper não for alterado lá.
+- Na contratação, o teto é aplicado antes do alcance: primeiro calcula-se o
+  máximo de impressões pagáveis, depois o alcance inteiro compatível com a
+  frequência e, por fim, o investimento arredondado em centavos. A identidade
+  `impressões × CPM / 1.000 = investimento` é preservada e o investimento não
+  pode ultrapassar o teto.
+
+Para o exemplo acima, o resultado correto do assistente passa a ser:
+
+```text
+Usuários/alcance contratado: 2.405
+Total de impressões: 158.730
+Investimento: R$ 5.000,00
+```
+
+### Logs para validação após o próximo deploy
+
+Filtrar os logs do Render por estes diagnósticos, na ordem:
+
+1. `campaign-assistant-audience-classification`: verificar
+   `selectedFilterKeys`, `filterResolution`, `recognizedFieldKeys` e se
+   `rejectedLlmCandidateCount` não descarta filtros válidos.
+2. `campaign-assistant-audience-impact-payload`: verificar
+   `selectedFilterFieldKeys`, `filterDimensions`, `demographicKeys` e
+   `genericResponseCount`.
+3. `campaign-assistant-audience-impact-result`: comparar `totalImpacts`,
+   `upstreamRespondents` e `appliedFilterCount` por canal.
+4. `campaign-assistant-budget-contract`: confirmar que
+   `budgetInvariant=true` e que `contractedCostFromImpressions` coincide com
+   `contractedInvestment`.
+
+Se o primeiro e o segundo log mostrarem todos os filtros, mas o impacto
+retornado continuar diferente do wizard, a perda estará comprovadamente no
+contrato ou no cálculo do Services. Esta entrega não altera o Services.
+
+### Arquivos alterados nesta correção
+
+- `C:\Users\aryha\Documents\Ummix\plataforma\ai-api\src\modules\campaign-assistant\domain\audience-filter-mapper.ts`
+  - torna o mapeamento tolerante a metadados ausentes e classifica múltiplas
+    dimensões por frase.
+- `C:\Users\aryha\Documents\Ummix\plataforma\ai-api\src\modules\campaign-assistant\domain\audience-filter-mapper.test.ts`
+  - cobre ocupação, gênero, idade, filhos e animais em linguagem natural.
+- `C:\Users\aryha\Documents\Ummix\plataforma\ai-api\src\modules\campaign-assistant\openai\extractor.ts`
+  - aceita IDs internos controlados e reforça no prompt a classificação de
+    várias dimensões.
+- `C:\Users\aryha\Documents\Ummix\plataforma\ai-api\src\modules\campaign-assistant\services\assistant-service.ts`
+  - valida contra o catálogo completo, registra a trilha de classificação e
+    aplica o contrato financeiro com teto rígido.
+- `C:\Users\aryha\Documents\Ummix\plataforma\ai-api\src\modules\campaign-assistant\services\assistant-service.test.ts`
+  - cobre a identidade financeira com CPM `31,50` e frequência `66`.
+- `C:\Users\aryha\Documents\Ummix\plataforma\ai-api\src\modules\campaign-assistant\ummix\ummix-client.ts`
+  - lê variantes de metadata do catálogo, conta dimensões compatíveis com o
+    wizard e adiciona diagnósticos do payload e da persistência.
+- `C:\Users\aryha\Documents\Ummix\plataforma\ai-api\src\modules\campaign-assistant\ummix\ummix-client.test.ts`
+  - cobre contagem de dimensões, metadata e diagnósticos do impacto.
+
+Não foram alterados `ai-web`, `web`, `services` ou `admin`. Nenhum commit ou
+push foi feito.
+
+### Validação desta correção
+
+- Testes focados: 3 arquivos e 43 testes aprovados.
+- Suíte completa do `ai-api`: 16 arquivos e 113 testes aprovados.
+- `npm.cmd run build` no `ai-api`: aprovado.
+- `git diff --check`: sem erros de whitespace; permanecem apenas avisos
+  normais de conversão LF/CRLF do Windows.

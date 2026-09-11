@@ -16,8 +16,13 @@ const extractionSchema = z.object({
   audienceFilters: z
     .array(
       z.object({
-        questionId: z.string().uuid(),
-        optionId: z.string().uuid(),
+        // O Services normalmente usa UUIDs, mas os fallbacks nativos do
+        // assistente usam identificadores estáveis próprios. A seleção só é
+        // aceita depois contra o catálogo allowlistado; exigir UUID aqui
+        // descartava silenciosamente idade/gênero quando o catálogo remoto
+        // não publicava essas dimensões.
+        questionId: z.string().trim().min(1).max(120),
+        optionId: z.string().trim().min(1).max(120),
         confidence: z.number().min(0).max(1),
       }),
     )
@@ -28,8 +33,8 @@ const extractionSchema = z.object({
         audienceFilters: z
           .array(
             z.object({
-              questionId: z.string().uuid(),
-              optionId: z.string().uuid(),
+              questionId: z.string().trim().min(1).max(120),
+              optionId: z.string().trim().min(1).max(120),
               confidence: z.number().min(0).max(1),
             }),
           )
@@ -169,7 +174,7 @@ export class CampaignBriefExtractor {
             'Mapeie objetivos somente para reconhecimento_marca, lancamento_produto ou promocao_oferta.',
             'Mapeie canal somente quando o usuário escolher explicitamente Rádio ou TV.',
             'Quando a mensagem descrever o público, classifique somente opções presentes no audienceCatalog, retornando os IDs exatos questionId e optionId e uma confiança de 0 a 1.',
-            'Avalie a frase inteira e todas as dimensões aplicáveis do catálogo; não pare no primeiro filtro encontrado. Por exemplo, "mulheres com mais de 20 anos" pode conter gênero e faixa etária.',
+            'Avalie a frase inteira e todas as dimensões aplicáveis do catálogo; não pare no primeiro filtro encontrado. Uma frase pode selecionar várias perguntas e várias opções. Por exemplo, "mulheres com mais de 20 anos" pode conter gênero e faixa etária, e "profissionais autônomos que possuem filhos e animais" pode conter ocupação, filhos e animais.',
             'Se houver uma interpretação segura, retorne audienceFilters e deixe audienceAlternatives vazio.',
             'Se houver ambiguidade, deixe audienceFilters vazio e retorne até duas audienceAlternatives, cada uma com filtros exatos do catálogo e confiança própria.',
             'Não invente IDs, perguntas ou opções. Se não houver correspondência segura nem alternativas seguras, retorne ambos vazios.',

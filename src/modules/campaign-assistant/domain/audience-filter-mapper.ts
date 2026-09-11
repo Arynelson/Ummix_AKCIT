@@ -136,6 +136,10 @@ const FIELD_KEY_ALIASES: Record<string, AudienceField> = {
   faixaetarias: 'idadeFaixas',
   possuifilhos: 'filhos',
   filhos: 'filhos',
+  possuianimais: 'animais',
+  possuianimaisdeestimacao: 'animais',
+  animaisdeestimacao: 'animais',
+  pets: 'animais',
   animais: 'animais',
   animal: 'animais',
   ocupacao: 'ocupacao',
@@ -345,7 +349,12 @@ export function inferNaturalAudienceFilters(
 
   const inferred: AudienceFilterSelection[] = [];
   for (const option of withCoreDemographicCatalog(catalog)) {
-    const field = resolveAudienceField(option);
+    // A parte administrativa do Services ainda não publica fieldKey para
+    // todas as perguntas. Quando isso ocorre, o próprio valor da opção pode
+    // revelar a dimensão (por exemplo, "Autônomo" ou "Feminino"). Isso
+    // mantém o catálogo remoto como fonte de verdade sem depender de IDs ou
+    // de uma lista fixa de filtros no frontend.
+    const field = resolveAudienceField(option) ?? inferFieldFromOptionText(option.option);
     const optionText = normalize(option.option);
 
     if (
@@ -437,7 +446,11 @@ function matchesNaturalCatalogOption(
   option: AudienceCatalogOption,
   field: AudienceField | null,
 ): boolean {
-  if (!field) return containsNaturalPhrase(normalizedMessage, option.option);
+  if (!field) {
+    return [option.option, ...genericNaturalAliases(option.option)].some((candidate) =>
+      containsNaturalPhrase(normalizedMessage, candidate),
+    );
+  }
 
   if (isBooleanChoiceField(field)) {
     return matchesBooleanOption(normalizedMessage, field, option.option);
@@ -807,17 +820,17 @@ function withCoreDemographicCatalog(
 ): AudienceCatalogOption[] {
   const hasFemale = catalog.some((option) => {
     const optionText = normalize(option.option);
-    return resolveAudienceField(option) === 'gender'
+    return (resolveAudienceField(option) ?? inferFieldFromOptionText(option.option)) === 'gender'
       && /femin|mulher|female|^f$/.test(optionText);
   });
   const hasMale = catalog.some((option) => {
     const optionText = normalize(option.option);
-    return resolveAudienceField(option) === 'gender'
+    return (resolveAudienceField(option) ?? inferFieldFromOptionText(option.option)) === 'gender'
       && /mascul|homem|male|^m$/.test(optionText);
   });
   const hasUsableAgeDimension = catalog.some(
     (option) =>
-      resolveAudienceField(option) === 'idadeFaixas' &&
+      (resolveAudienceField(option) ?? inferFieldFromOptionText(option.option)) === 'idadeFaixas' &&
       parseAgeRange(option.option) !== null,
   );
 
@@ -833,8 +846,55 @@ function withCoreDemographicCatalog(
   ];
 }
 
+/**
+ * Permite que o classificador continue usando opções reais mesmo quando o
+ * Services publica uma pergunta sem `fieldKey` e com um título resumido. A
+ * heurística só é aplicada a valores que são inequívocos; perguntas
+ * verdadeiramente dinâmicas continuam no caminho genérico do catálogo/LLM.
+ */
+function inferFieldFromOptionText(value: string): AudienceField | null {
+  const normalized = normalize(value);
+  if (/femin|mulher|female|^f$/.test(normalized)) return 'gender';
+  if (/mascul|homem|male|^m$/.test(normalized)) return 'gender';
+  if (parseAgeRange(value) !== null) return 'idadeFaixas';
+  if (/autonom|profissional liberal|empregador|setor privado|setor publico|aposentad|pensionista|estudante|trabalhador domestico|do lar/.test(normalized)) {
+    return 'ocupacao';
+  }
+  return null;
+}
+
+function genericNaturalAliases(value: string): string[] {
+  const normalized = normalize(value);
+  if (/autonom|profissional liberal/.test(normalized)) {
+    return [
+      'autonomo',
+      'autonoma',
+      'autonomos',
+      'autonomas',
+      'profissional autonomo',
+      'profissionais autonomos',
+      'profissional liberal',
+      'profissionais liberais',
+      'por conta propria',
+      'freelancer',
+    ];
+  }
+  if (/femin|mulher|female|^f$/.test(normalized)) return ['mulher', 'mulheres'];
+  if (/mascul|homem|male|^m$/.test(normalized)) return ['homem', 'homens'];
+  return [];
+}
+
+/** Exportado para a validação do patch do LLM incluir os fallbacks nativos. */
+export function getAudienceCatalogWithCoreDemographics(
+  catalog: AudienceCatalogOption[],
+): AudienceCatalogOption[] {
+  return withCoreDemographicCatalog(catalog);
+}
+
 function resolveAudienceField(
-  filter: Pick<AudienceFilterSelection, 'question' | 'questionOriginal' | 'fieldKey'>,
+  filter: Pick<AudienceFilterSelection, 'question' | 'questionOriginal' | 'fieldKey'> & {
+    option?: string;
+  },
 ): AudienceField | null {
   const metadataField = normalizeFieldKey(filter.fieldKey);
   if (metadataField) return metadataField;
@@ -934,7 +994,12 @@ function resolveAudienceField(
   if (/conteudo|interess|programa|assunto/.test(searchable)) {
     return 'preferenciaConteudo';
   }
-  return null;
+  // Algumas instalações antigas do Services publicam a pergunta com um
+  // título genérico (por exemplo, "Público-alvo"), mas as opções continuam
+  // sendo inequívocas. Usar o valor apenas para estas dimensões estáveis
+  // permite materializar sexo, idade e ocupação sem adivinhar filtros
+  // dinâmicos nem depender de IDs.
+  return inferFieldFromOptionText(filter.option ?? '');
 }
 
 function normalizeFieldKey(value: string | undefined): AudienceField | null {

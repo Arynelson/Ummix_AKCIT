@@ -2,11 +2,40 @@ import { afterEach, describe, expect, it, vi } from 'vitest';
 import type { CampaignState } from '../domain/types.js';
 import {
   buildAudienceDemographics,
+  countAudienceFilterDimensions,
   groupAudienceFilters,
   UmmixClient,
 } from './ummix-client.js';
 
 describe('Ummix audience impact payload', () => {
+  it('counts the same audience dimensions as the manual wizard', () => {
+    expect(
+      countAudienceFilterDimensions({
+        locations: [{ cityId: 'city-id', cityName: 'Goiânia', stateUf: 'GO' }],
+        audienceFilters: [
+          {
+            questionId: 'gender-question',
+            question: 'Sexo',
+            optionId: 'female-option',
+            option: 'Feminino',
+          },
+          {
+            questionId: 'age-question',
+            question: 'Faixa etária',
+            optionId: 'age-option',
+            option: '30-34',
+          },
+          {
+            questionId: 'animals-question',
+            question: 'Possui Animais de Estimação?',
+            optionId: 'animals-option',
+            option: 'Sim',
+          },
+        ],
+      } as CampaignState),
+    ).toBe(6);
+  });
+
   it('materializes catalog gender and age filters in native demographic fields', () => {
     expect(
       buildAudienceDemographics({
