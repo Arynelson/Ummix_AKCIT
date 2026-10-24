@@ -90,8 +90,7 @@ pagamento, o cliente precisa ter o cadastro exigido para o contrato completo.
 ### Endereços configurados para homologação
 
 - Plataforma principal e entrada autenticada: <https://ummix.workingtech.com.br>.
-- Interface IA: <https://ummix-ai-homol.vercel.app>.
-- API IA: <https://ummix-ai-api-homol.onrender.com>.
+
 
 Os endereços são referências de acesso, não evidência de disponibilidade ou
 teste completo. Abrir o chat diretamente, sem a sessão criada pelo botão da
@@ -101,7 +100,7 @@ plataforma, não substitui a autenticação.
 
 | Componente | Responsabilidade |
 |---|---|
-| Frontend principal (`ummix-front-develop`) | Login, botão de criação de campanha e acesso ao conteúdo de uma campanha |
+| Frontend principal (`plataforma UmmixAds`) | Login, botão de criação de campanha e acesso ao conteúdo de uma campanha |
 | `ai-web` | Chat, comparação de canais, apresentação e edição dos textos |
 | `ai-api` | Autorização, sessões, validação, chamadas ao modelo e integração com a Ummix |
 | PostgreSQL da IA | Sessões, mensagens, handoffs temporários, textos e métricas |
