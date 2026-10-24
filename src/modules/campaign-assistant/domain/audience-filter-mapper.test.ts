@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import {
+  getAudienceCatalogWithCoreDemographics,
   inferNaturalAudienceFilters,
   mapAudienceFiltersToTargetAudience,
 } from './audience-filter-mapper.js';
@@ -119,6 +120,43 @@ describe('audience filter mapper', () => {
         option: 'Sim',
       }),
     ]);
+  });
+
+  it('does not classify an ambiguous bare confirmation across dynamic questions', () => {
+    const catalog = Array.from({ length: 3 }, (_, index) => ({
+      questionId: `question-${index}`,
+      question: `Pergunta ${index}`,
+      category: 'publico_alvo',
+      optionId: `option-${index}`,
+      option: 'Sim',
+    }));
+
+    expect(inferNaturalAudienceFilters('sim', catalog)).toEqual([]);
+  });
+
+  it('recognizes self-employed occupation when the upstream catalog omits structural demographics', () => {
+    const catalog = getAudienceCatalogWithCoreDemographics([
+      {
+        questionId: 'dynamic-question',
+        question: 'Qual perfil descreve melhor seu público?',
+        category: 'publico_alvo',
+        optionId: 'dynamic-option',
+        option: 'Outro perfil',
+      },
+    ]);
+
+    const result = inferNaturalAudienceFilters('profissional autonomo', catalog);
+
+    expect(result).toEqual([
+      expect.objectContaining({
+        questionId: 'core-demographic-occupation',
+        optionId: 'core-demographic-occupation-self-employed',
+        option: 'Autônomo ou Profissional Liberal',
+      }),
+    ]);
+    expect(mapAudienceFiltersToTargetAudience(result)).toMatchObject({
+      ocupacao: ['Autônomo ou Profissional Liberal'],
+    });
   });
 
   it('recognizes the occupation wording used by customers', () => {

@@ -226,6 +226,58 @@ const CORE_AGE_CATALOG: AudienceCatalogOption[] = [
   option: value,
 }));
 
+const CORE_OCCUPATION_CATALOG: AudienceCatalogOption[] = [
+  {
+    questionId: 'core-demographic-occupation',
+    question: 'Ocupação',
+    category: 'core_demographic',
+    optionId: 'core-demographic-occupation-private-sector',
+    option: 'Empregado do setor privado',
+  },
+  {
+    questionId: 'core-demographic-occupation',
+    question: 'Ocupação',
+    category: 'core_demographic',
+    optionId: 'core-demographic-occupation-self-employed',
+    option: 'Autônomo ou Profissional Liberal',
+  },
+  {
+    questionId: 'core-demographic-occupation',
+    question: 'Ocupação',
+    category: 'core_demographic',
+    optionId: 'core-demographic-occupation-employer',
+    option: 'Empregador',
+  },
+  {
+    questionId: 'core-demographic-occupation',
+    question: 'Ocupação',
+    category: 'core_demographic',
+    optionId: 'core-demographic-occupation-public-sector',
+    option: 'Empregado do setor público (inclusive empresas de economia mista)',
+  },
+  {
+    questionId: 'core-demographic-occupation',
+    question: 'Ocupação',
+    category: 'core_demographic',
+    optionId: 'core-demographic-occupation-retired',
+    option: 'Aposentado e Pensionistas',
+  },
+  {
+    questionId: 'core-demographic-occupation',
+    question: 'Ocupação',
+    category: 'core_demographic',
+    optionId: 'core-demographic-occupation-student',
+    option: 'Estudante',
+  },
+  {
+    questionId: 'core-demographic-occupation',
+    question: 'Ocupação',
+    category: 'core_demographic',
+    optionId: 'core-demographic-occupation-domestic',
+    option: 'Do lar ou Trabalhador doméstico',
+  },
+];
+
 type AgeConstraint =
   | { mode: 'lessThan' | 'greaterThan' | 'atLeast' | 'exact'; value: number }
   | { mode: 'between'; value: number; upperValue: number };
@@ -447,6 +499,11 @@ function matchesNaturalCatalogOption(
   field: AudienceField | null,
 ): boolean {
   if (!field) {
+    // "Sim", "Não" e equivalentes aparecem em várias perguntas do
+    // catálogo. Sem a dimensão da pergunta, selecionar essa opção atribui a
+    // mesma resposta a várias perguntas diferentes (principalmente quando o
+    // cliente está apenas confirmando uma etapa do fluxo).
+    if (isAmbiguousBooleanOption(option.option)) return false;
     return [option.option, ...genericNaturalAliases(option.option)].some((candidate) =>
       containsNaturalPhrase(normalizedMessage, candidate),
     );
@@ -536,6 +593,20 @@ function matchesBooleanOption(
     return /\b(talvez|possivelmente|pode ser|ainda nao sei|nao decidiu)\b/.test(message);
   }
   return false;
+}
+
+function isAmbiguousBooleanOption(value: string): boolean {
+  return new Set([
+    'sim',
+    'nao',
+    's',
+    'n',
+    'yes',
+    'no',
+    'talvez',
+    'indiferente',
+    'nao informado',
+  ]).has(normalize(value).replace(/\s+/g, ' ').trim());
 }
 
 function isNegatedNaturalPhrase(message: string, candidate: string): boolean {
@@ -635,7 +706,8 @@ function naturalAliases(field: AudienceField, option: string): string[] {
           'profissionais liberais',
           'por conta propria',
           'freelancer',
-        ];
+];
+
       }
       if (/setor privado/.test(option)) return ['empresa privada', 'iniciativa privada', 'carteira assinada'];
       if (/setor publico/.test(option)) return ['servidor publico', 'funcionario publico', 'concursado'];
@@ -833,6 +905,11 @@ function withCoreDemographicCatalog(
       (resolveAudienceField(option) ?? inferFieldFromOptionText(option.option)) === 'idadeFaixas' &&
       parseAgeRange(option.option) !== null,
   );
+  const hasUsableOccupationDimension = catalog.some(
+    (option) =>
+      (resolveAudienceField(option) ?? inferFieldFromOptionText(option.option)) === 'ocupacao' &&
+      Boolean(option.option.trim()),
+  );
 
   return [
     ...catalog,
@@ -843,6 +920,7 @@ function withCoreDemographicCatalog(
     // "Não informado". Só dispensamos o fallback quando existe pelo menos
     // uma opção de idade que pode ser convertida em faixa.
     ...(hasUsableAgeDimension ? [] : CORE_AGE_CATALOG),
+    ...(hasUsableOccupationDimension ? [] : CORE_OCCUPATION_CATALOG),
   ];
 }
 

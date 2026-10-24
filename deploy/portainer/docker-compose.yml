@@ -1,0 +1,91 @@
+services:
+  postgres:
+    image: postgres:16-alpine
+    restart: unless-stopped
+    environment:
+      POSTGRES_DB: ummix_ai_homol
+      POSTGRES_USER: ummix_ai
+      POSTGRES_PASSWORD: ${AI_POSTGRES_PASSWORD:?Defina AI_POSTGRES_PASSWORD no Portainer}
+    volumes:
+      - ai_postgres_data:/var/lib/postgresql/data
+    networks:
+      - ai_private
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ummix_ai -d ummix_ai_homol"]
+      interval: 10s
+      timeout: 5s
+      retries: 10
+
+  ai-api:
+    image: ${AI_API_IMAGE:?Defina uma imagem versionada da ai-api}
+    restart: unless-stopped
+    depends_on:
+      postgres:
+        condition: service_healthy
+    environment:
+      NODE_ENV: production
+      HOST: 0.0.0.0
+      PORT: "10000"
+      DATABASE_URL: postgresql://ummix_ai:${AI_POSTGRES_PASSWORD:?Defina AI_POSTGRES_PASSWORD}@postgres:5432/ummix_ai_homol
+      DATABASE_SSL_ENABLED: "false"
+      UMMIX_API_URL: ${UMMIX_API_URL:?Defina a URL da API principal de homologacao}
+      UMMIX_WEB_URL: ${UMMIX_WEB_URL:?Defina a origem do frontend principal}
+      AI_WEB_ORIGIN: https://${AI_WEB_HOST:?Defina o dominio do ai-web}
+      UMMIX_SERVICE_TOKEN: ${UMMIX_SERVICE_TOKEN:?Defina o token de integracao}
+      AI_HANDOFF_ENCRYPTION_KEY: ${AI_HANDOFF_ENCRYPTION_KEY:?Defina a chave Base64 de 32 bytes}
+      OPENAI_API_KEY: ${OPENAI_API_KEY:?Defina a credencial do provedor LLM}
+      OPENAI_MODEL: ${OPENAI_MODEL:-gpt-5.6-luna}
+      CAMPAIGN_ASSISTANT_ENABLED: ${CAMPAIGN_ASSISTANT_ENABLED:-true}
+      CAMPAIGN_CONTENT_ENABLED: ${CAMPAIGN_CONTENT_ENABLED:-true}
+      CAMPAIGN_CONTENT_EMAIL_ENABLED: ${CAMPAIGN_CONTENT_EMAIL_ENABLED:-false}
+      CAMPAIGN_CONTENT_ADMIN_EMAILS: ${CAMPAIGN_CONTENT_ADMIN_EMAILS:-falecoma@ummix.com.br,tecnologia@ummix.com.br}
+      CAMPAIGN_CONTENT_EMAIL_API_KEY: ${CAMPAIGN_CONTENT_EMAIL_API_KEY:-}
+      CAMPAIGN_CONTENT_EMAIL_FROM: ${CAMPAIGN_CONTENT_EMAIL_FROM:-}
+      CAMPAIGN_CONTENT_EMAIL_FROM_NAME: ${CAMPAIGN_CONTENT_EMAIL_FROM_NAME:-Ummix Ads}
+    networks:
+      - ai_private
+      - proxy
+    labels:
+      - "traefik.enable=true"
+      - "traefik.docker.network=${TRAEFIK_NETWORK:-proxy_shared_01}"
+      - "traefik.http.routers.ummix-ai-homol-api.rule=Host(`${AI_API_HOST:?Defina o dominio da ai-api}`)"
+      - "traefik.http.routers.ummix-ai-homol-api.entrypoints=websecure"
+      - "traefik.http.routers.ummix-ai-homol-api.tls.certresolver=${TRAEFIK_CERTRESOLVER:-letsencrypt}"
+      - "traefik.http.services.ummix-ai-homol-api.loadbalancer.server.port=10000"
+    healthcheck:
+      test: ["CMD", "node", "-e", "fetch('http://127.0.0.1:10000/ready').then(r=>process.exit(r.ok?0:1)).catch(()=>process.exit(1))"]
+      interval: 20s
+      timeout: 8s
+      retries: 5
+      start_period: 40s
+
+  ai-web:
+    image: ${AI_WEB_IMAGE:?Defina uma imagem versionada do ai-web}
+    restart: unless-stopped
+    depends_on:
+      ai-api:
+        condition: service_healthy
+    networks:
+      - proxy
+    labels:
+      - "traefik.enable=true"
+      - "traefik.docker.network=${TRAEFIK_NETWORK:-proxy_shared_01}"
+      - "traefik.http.routers.ummix-ai-homol-web.rule=Host(`${AI_WEB_HOST:?Defina o dominio do ai-web}`)"
+      - "traefik.http.routers.ummix-ai-homol-web.entrypoints=websecure"
+      - "traefik.http.routers.ummix-ai-homol-web.tls.certresolver=${TRAEFIK_CERTRESOLVER:-letsencrypt}"
+      - "traefik.http.services.ummix-ai-homol-web.loadbalancer.server.port=80"
+    healthcheck:
+      test: ["CMD", "wget", "-q", "-O", "/dev/null", "http://127.0.0.1/"]
+      interval: 20s
+      timeout: 5s
+      retries: 5
+
+volumes:
+  ai_postgres_data:
+
+networks:
+  ai_private:
+    internal: true
+  proxy:
+    external: true
+    name: ${TRAEFIK_NETWORK:-proxy_shared_01}

@@ -198,39 +198,44 @@ export class AssistantService {
           ? 'audienceConfirmation'
           : missingFields(nextState)[0] ?? null;
         const referenceDate = currentDateInBrazil();
+        const confirmationOnly =
+          currentField === 'audienceConfirmation' && isBareConfirmationReply(input.message);
         // A resposta pode refinar um público já informado mesmo depois de a
         // máquina ter avançado para orçamento ou data. A decisão usa o
         // catálogo completo para não depender de uma lista fixa de palavras
         // (que inevitavelmente ficaria defasada quando o Services ganhar um
         // novo filtro).
-        const hasCatalogMatch = inferNaturalAudienceFilters(
-          input.message,
-          fullAudienceCatalog,
-        ).length > 0;
-        const isAudienceTurn = shouldUseAudienceCatalog(
-          input.message,
-          currentField,
-          nextState,
-          hasCatalogMatch,
-        );
+        const hasCatalogMatch = confirmationOnly
+          ? false
+          : inferNaturalAudienceFilters(input.message, fullAudienceCatalog).length > 0;
+        const isAudienceTurn = confirmationOnly
+          ? false
+          : shouldUseAudienceCatalog(
+            input.message,
+            currentField,
+            nextState,
+            hasCatalogMatch,
+          );
         const audienceCatalog = selectAudienceCatalog(
           input.message,
           fullAudienceCatalog,
-          isAudienceTurn,
+          isAudienceTurn && !confirmationOnly,
         );
         let inferredFilters = isAudienceTurn
           ? inferNaturalAudienceFilters(input.message, fullAudienceCatalog)
           : [];
         let extractedPatch: ExtractedCampaignPatch;
         try {
-          extractedPatch = await this.extractor.extract({
-            message: input.message,
-            currentState: nextState,
-            userId: input.user.id,
-            audienceCatalog,
-            currentField,
-            referenceDate,
-          });
+          extractedPatch = confirmationOnly
+            ? emptyExtractedPatch(null)
+            : await this.extractor.extract({
+              message: input.message,
+              currentState: nextState,
+              userId: input.user.id,
+              audienceCatalog,
+              currentField,
+              referenceDate,
+            });
         } catch (error) {
           if (!(error instanceof OpenAIUnavailableError)) throw error;
           // A catalog-driven deterministic pass keeps explicit demographic and
@@ -320,6 +325,7 @@ export class AssistantService {
             filterResolution,
             recognizedFieldKeys: classificationFields,
             llmFallback: fallbackToManual,
+            confirmationOnly,
           },
           '[campaign-assistant-diagnostic] audience classification',
         );
@@ -1110,6 +1116,32 @@ function mentionsAudience(message: string): boolean {
   return /public|pessoa|perfil|alcanc|idade|anos|mulher|homem|femin|mascul|renda|classe|famili|interessad|cliente|autonom|ocup|profiss|filh|animal|pet|estimac|plano|saude|exerc|academ|agro|rural|relig|rac|etnia|escolar|ensino|midia|conteud|imovel|casa|automovel|carro|seguro|energia|governo|presidente|comprar/.test(
     normalized,
   );
+}
+
+function isBareConfirmationReply(message: string): boolean {
+  const normalized = normalizeText(message)
+    .replace(/[.!?,;:]+/g, ' ')
+    .replace(/\s+/g, ' ')
+    .trim();
+  return new Set([
+    'sim',
+    's',
+    'yes',
+    'nao',
+    'n',
+    'no',
+    'ok',
+    'okay',
+    'certo',
+    'certa',
+    'confirmo',
+    'confirmar',
+    'isso',
+    'isso mesmo',
+    'exato',
+    'perfeito',
+    'pode',
+  ]).has(normalized);
 }
 
 function tokenize(message: string): string[] {

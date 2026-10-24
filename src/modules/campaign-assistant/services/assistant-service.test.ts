@@ -666,6 +666,112 @@ describe('AssistantService finalization', () => {
     expect(savedState.maximumBudget).toBe(5000);
   });
 
+  it('does not turn an affirmative audience confirmation into generic filters', async () => {
+    const location = { cityId: 'city', cityName: 'Goiânia', stateUf: 'GO' };
+    const existingFilter = {
+      questionId: 'gender-question',
+      question: 'Sexo',
+      category: 'perfil_habitos',
+      optionId: 'gender-female',
+      option: 'Feminino',
+    };
+    const state = {
+      ...initialState(100, 'varejo', [location]),
+      productService: 'Consultoria',
+      objective: 'reconhecimento_marca' as const,
+      audienceDescription: 'Mulheres',
+      audienceFilters: [existingFilter],
+      audienceClarification: {
+        prompt: 'Confirme o público escolhido.',
+        options: [],
+      },
+      location,
+      locations: [location],
+    };
+    const session = {
+      id: '93203443-1fe8-45d0-a90d-8ec96ba8042f',
+      userId: '856918db-6f3d-4375-a95c-715177012cca',
+      userType: 'regular_client',
+      clientId: '7ed901e4-3adf-45f4-a60d-17908424045f',
+      clientSnapshot: {
+        id: '7ed901e4-3adf-45f4-a60d-17908424045f',
+        fullName: 'Cliente',
+        companyName: 'Empresa',
+        companyBrand: 'Marca',
+        businessActivity: 'varejo',
+        isActive: true,
+      },
+      status: 'collecting',
+      state,
+      messages: [],
+      finalizedCampaignId: null,
+      finalizedAt: null,
+      reviewReachedAt: null,
+      expiresAt: '2099-01-01T00:00:00.000Z',
+      createdAt: '2026-08-18T00:00:00.000Z',
+      updatedAt: '2026-08-18T00:00:00.000Z',
+      version: 1,
+    } as AssistantSession;
+    let savedState = state;
+    const repository = {
+      findOwned: vi.fn().mockResolvedValue(session),
+      countRecentMessages: vi.fn().mockResolvedValue(0),
+      trackMetric: vi.fn().mockResolvedValue(undefined),
+      saveTurn: vi.fn().mockImplementation(async (input) => {
+        savedState = input.state;
+        return { ...session, state: input.state, messages: input.messages, version: 2 };
+      }),
+    };
+    const ummix = {
+      getAudienceCatalog: vi.fn().mockResolvedValue(
+        Array.from({ length: 11 }, (_, index) => ({
+          questionId: `question-${index}`,
+          question: `Pergunta ${index}`,
+          category: 'publico_alvo',
+          optionId: `option-${index}`,
+          option: 'Sim',
+        })),
+      ),
+    };
+    const extractor = {
+      extract: vi.fn().mockResolvedValue({
+        productService: null,
+        objective: null,
+        audienceDescription: null,
+        audienceFilters: [],
+        audienceAlternatives: [],
+        cityName: null,
+        stateUf: null,
+        maximumBudget: null,
+        desiredStartDate: null,
+        selectedChannel: null,
+      }),
+    };
+    const service = new AssistantService(
+      config,
+      repository as never,
+      ummix as never,
+      extractor as never,
+    );
+
+    await service.sendMessage({
+      id: session.id,
+      token: 'redacted',
+      user: {
+        id: session.userId,
+        fullName: 'Cliente',
+        role: 'user',
+        userType: 'regular_client',
+      },
+      message: 'sim',
+    });
+
+    expect(savedState.audienceDescription).toBe('Mulheres');
+    expect(savedState.audienceFilters).toEqual([existingFilter]);
+    expect(savedState.audienceClarification).toEqual(state.audienceClarification);
+    expect(extractor.extract).not.toHaveBeenCalled();
+  });
+
   it('persists explicit gender and age filters when the LLM is unavailable', async () => {
     const location = { cityId: 'city', cityName: 'Goiânia', stateUf: 'GO' };
     const state = {

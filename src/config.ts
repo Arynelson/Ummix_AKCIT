@@ -28,6 +28,7 @@ const schema = z.object({
   PORT: z.coerce.number().int().positive().default(3010),
   HOST: z.string().default('0.0.0.0'),
   DATABASE_URL: z.string().min(1),
+  DATABASE_SSL_ENABLED: booleanFromString('true'),
   UMMIX_API_URL: z.string().url().transform((value) => value.replace(/\/$/, '')),
   UMMIX_WEB_URL: z.string().url().transform((value) => value.replace(/\/$/, '')),
   AI_WEB_ORIGIN: z.string().url().default('http://localhost:3007'),

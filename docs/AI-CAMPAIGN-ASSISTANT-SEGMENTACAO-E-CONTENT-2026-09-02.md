@@ -274,3 +274,90 @@ push foi feito.
 - `npm.cmd run build` no `ai-api`: aprovado.
 - `git diff --check`: sem erros de whitespace; permanecem apenas avisos
   normais de conversão LF/CRLF do Windows.
+
+## Correção da confirmação de público — 2026-09-11
+
+### Causa reproduzida no Render
+
+Quando a etapa corrente era `audienceConfirmation` e o cliente respondia
+somente `sim`, o fallback determinístico comparava essa palavra com todas as
+opções binárias do catálogo. Como várias perguntas possuem a opção `Sim`, uma
+única confirmação gerava múltiplos filtros genéricos.
+
+Na execução analisada, isso produziu 11 seleções determinísticas sem campo
+canônico, 12 respostas genéricas no payload e `totalImpacts=0` no Services.
+O contrato financeiro apenas refletiu corretamente a audiência zero.
+
+### Comportamento corrigido
+
+- Respostas curtas de confirmação, como `sim`, `não`, `ok`, `confirmo` e
+  equivalentes, não são enviadas ao LLM nem ao classificador quando a etapa é
+  `audienceConfirmation`.
+- A descrição, os filtros existentes e a pendência de confirmação são
+  preservados.
+- Opções isoladas e ambíguas (`Sim`, `Não`, `Talvez` e equivalentes) não são
+  classificadas automaticamente quando a pergunta não identifica sua
+  dimensão. Isso evita aplicar a mesma resposta a várias perguntas.
+- Respostas completas, como `pessoas com plano de saúde`, continuam podendo
+  ser classificadas quando o catálogo fornece o campo ou a pergunta permite
+  identificar a dimensão.
+
+### Arquivos alterados
+
+- `C:\Users\aryha\Documents\Ummix\plataforma\ai-api\src\modules\campaign-assistant\services\assistant-service.ts`
+  - ignora confirmação isolada durante a etapa de confirmação, preservando o
+    estado e evitando uma chamada desnecessária ao LLM; registra a decisão no
+    diagnóstico existente.
+- `C:\Users\aryha\Documents\Ummix\plataforma\ai-api\src\modules\campaign-assistant\domain\audience-filter-mapper.ts`
+  - impede que opções binárias ambíguas de perguntas sem dimensão sejam
+    escolhidas pelo fallback determinístico.
+- `C:\Users\aryha\Documents\Ummix\plataforma\ai-api\src\modules\campaign-assistant\services\assistant-service.test.ts`
+  - reproduz e protege o fluxo de confirmação `sim` sem filtros extras e sem
+    chamada ao LLM.
+- `C:\Users\aryha\Documents\Ummix\plataforma\ai-api\src\modules\campaign-assistant\domain\audience-filter-mapper.test.ts`
+  - garante que `sim` não seja associado a várias perguntas dinâmicas.
+
+### Validação desta correção
+
+- Testes focados: 2 arquivos e 35 testes aprovados.
+- Suíte completa do `ai-api`: 16 arquivos e 115 testes aprovados.
+- `npm.cmd run build` no `ai-api`: aprovado.
+- Nenhum arquivo de `ai-web`, `web`, `services` ou `admin` foi alterado.
+- Nenhum commit, push ou deploy foi feito.
+
+## Fallback de ocupação para catálogo incompleto — 2026-09-11
+
+### Evidência e causa
+
+O diagnóstico do ambiente publicado registrou o catálogo de público com
+`catalogFieldKeys: []` e sem as dimensões estruturais esperadas. Por isso, a
+regra de alias para `profissional autonomo` existia, mas não encontrava uma
+opção oficial de Ocupação para selecionar. A frase do cliente não era o
+problema; faltava a opção controlada no catálogo de classificação.
+
+### Comportamento corrigido
+
+Quando o catálogo do Services não trouxer nenhuma opção utilizável de
+Ocupação, o `ai-api` acrescenta internamente as opções demográficas controladas
+e não as envia como perguntas novas ao cliente. Assim, expressões como
+`profissional autonomo`, `profissionais autonomos`, `profissional liberal`,
+`por conta própria` e `freelancer` são convertidas para o filtro canônico
+`ocupacao: Autônomo ou Profissional Liberal`.
+
+Se o catálogo real já contiver Ocupação, ele continua sendo priorizado. O
+fallback não cria filtros duplicados nem altera o cadastro do Services; apenas
+garante uma opção válida para a classificação e para o payload final.
+
+### Arquivos alterados
+
+- `C:\Users\aryha\Documents\Ummix\plataforma\ai-api\src\modules\campaign-assistant\domain\audience-filter-mapper.ts`
+  - adiciona o catálogo controlado de ocupações e o utiliza apenas quando a
+    dimensão estiver ausente no catálogo remoto.
+- `C:\Users\aryha\Documents\Ummix\plataforma\ai-api\src\modules\campaign-assistant\domain\audience-filter-mapper.test.ts`
+  - reproduz o caso com catálogo sem dados estruturais e verifica a conversão
+    para `ocupacao`.
+
+### Validação desta correção
+
+- Teste focado do mapper: 1 arquivo e 27 testes aprovados.
+- Nenhum commit, push ou deploy foi feito.
