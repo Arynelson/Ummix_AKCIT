@@ -1,19 +1,101 @@
-# Ummix AI API
+# Ummix AI — Assistente de campanhas e conteúdo
 
-API independente dos módulos `campaign-assistant` e `campaign-content` da Ummix.
-Transforma uma conversa em um planejamento de campanha de Rádio/TV e produz
-três alternativas de texto publicitário para uma campanha existente.
+Protótipo para apresentação no **AKCIT Camp 2026**, em Goiânia/GO, com duas
+funcionalidades: transformar uma conversa em um planejamento de campanha de
+Rádio/TV e gerar três alternativas de texto publicitário para uma campanha.
+
+Este repositório contém a **`ai-api`**, o backend independente da solução.
+A interface de conversa fica no repositório **`ai-web`**. O usuário entra pela
+plataforma Ummix, revisa as sugestões e mantém a decisão sobre a campanha e
+o conteúdo final.
+
+## O problema e a proposta
+
+Planejar uma campanha exige traduzir objetivos, público e orçamento em
+configurações de mídia. Produzir o texto exige reunir informações da empresa
+e adequar a mensagem ao formato e ao tempo contratado.
+
+A Ummix AI reúne essas duas tarefas em conversas guiadas. Usa os dados da
+plataforma para apoiar o planejamento e o LLM para interpretar o briefing e
+redigir alternativas. A proposta é reduzir o preenchimento manual sem
+retirar a revisão do anunciante. Ganhos de tempo, conversão ou retorno
+financeiro não foram medidos para esta apresentação.
+
+## Contexto do hackathon
+
+| Item | Informação fornecida pela equipe |
+|---|---|
+| Evento | AKCIT Camp 2026 |
+| Data do hackathon | 24/10/2026 |
+| Modalidade | Presencial |
+| Local | Goiânia — GO; endereço específico não informado |
+| Equipe | De 2 a 4 integrantes |
+| Inscrição | Uma pessoa preenche em nome do grupo, com os dados de todos |
+| Prazo de inscrição informado | 17/10/2026 |
+| Tempo estimado para preencher a inscrição | 5 minutos |
+| Portal de inscrição | [akcitcamp.ceia.digital](https://akcitcamp.ceia.digital/) |
+
+Essas informações contextualizam a entrega; não confirmam a inscrição nem a
+composição da equipe. O tempo de cinco minutos é o tempo estimado de
+**inscrição**, não um limite de vídeo ou apresentação. Critérios de avaliação,
+tema obrigatório e formato oficial de submissão não foram fornecidos e não
+são presumidos neste README.
+
+## O que demonstrar
+
+| Funcionalidade | Entrada principal | Resultado apresentado | Decisão humana |
+|---|---|---|---|
+| Criar campanha | Objetivo, praças, público, teto de orçamento e início | Comparação de Rádio/TV e campanha salva para revisão | Confirmar público/canal e revisar antes de contratar |
+| Criar conteúdo | Campanha existente, nome fantasia e briefing | Três textos proporcionais à duração, com seleção e edição | Escolher, revisar, editar e salvar um texto |
+
+### Papel da IA e da aplicação
 
 O protótipo usa um LLM, memória de sessão, consultas às APIs da plataforma e
 aprovação humana. A orquestração das etapas e das ferramentas é feita pelo
 código; o modelo interpreta o briefing e escreve os textos. Não há um
 planejador autônomo que decide quais ferramentas executar.
 
-O perfil de homologação preparado para o hackathon roda no **Portainer**, com
-containers separados para `ai-api`, `ai-web` e um PostgreSQL próprio. O arquivo
-`render.yaml` permanece disponível para o deploy anterior no Render. Nenhuma
-das opções acessa diretamente o banco principal: a integração com o backend
-Ummix (`services` / `ummix-back-develop`) ocorre por HTTP autenticado.
+Para recuperar rapidamente a demonstração, o destino escolhido é **Render
+para a `ai-api` e seu PostgreSQL próprio, e Vercel para o `ai-web`**. Há também
+um perfil preparado para Portainer com três containers separados. Esse perfil
+não comprova publicação no servidor da Workingtech.
+
+Nenhuma das opções acessa diretamente o banco principal: a integração com o
+backend Ummix (`services` / `ummix-back-develop`) ocorre por HTTP autenticado.
+
+## Roteiro sugerido para apresentação ou vídeo
+
+Este roteiro é uma sugestão do projeto, não uma exigência do evento.
+
+1. **Apresentar o problema:** mostrar que o anunciante precisa definir público,
+   verba, canal e mensagem para uma campanha de Rádio/TV.
+2. **Criar campanha:** fazer login na homologação e usar o botão de IA.
+   Responder objetivo, praças, público, orçamento e início.
+3. **Mostrar a lógica:** explicar como a linguagem natural vira campos e
+   filtros e como a API principal fornece os dados da comparação de canais.
+4. **Revisar a proposta:** conferir a segmentação, os valores e o canal;
+   finalizar no chat e mostrar a etapa de revisão da campanha na plataforma.
+5. **Criar conteúdo:** abrir o gerador para uma campanha elegível, informar o
+   nome fantasia e responder ao briefing.
+6. **Mostrar o resultado:** comparar as três opções, editar uma e salvar.
+   Reabrir o conteúdo para verificar a persistência.
+7. **Encerrar com os limites:** destacar a aprovação humana, as integrações
+   utilizadas e o que ainda não foi validado. Não efetuar pagamento real nem
+   exibir credenciais ou dados pessoais na gravação.
+
+Se o envio administrativo estiver desligado, demonstrar apenas o salvamento
+do texto; não apresentar o e-mail como enviado. Para mostrar a passagem ao
+pagamento, o cliente precisa ter o cadastro exigido para o contrato completo.
+
+### Endereços configurados para homologação
+
+- Plataforma principal e entrada autenticada: <https://ummix.workingtech.com.br>.
+- Interface IA: <https://ummix-ai-homol.vercel.app>.
+- API IA: <https://ummix-ai-api-homol.onrender.com>.
+
+Os endereços são referências de acesso, não evidência de disponibilidade ou
+teste completo. Abrir o chat diretamente, sem a sessão criada pelo botão da
+plataforma, não substitui a autenticação.
 
 ## Arquitetura e acesso
 
@@ -84,6 +166,11 @@ o contexto de autorização do usuário.
 A aprovação, o pagamento e a ativação continuam no fluxo normal da plataforma.
 O assistente não compra mídia ou publica uma campanha por conta própria.
 
+O resumo de mídia preenchido não garante que o cadastro do contratante esteja
+completo. Antes de avançar ao pagamento, o backend principal valida os dados
+do contrato, inclusive endereço do cliente: logradouro, número, bairro,
+cidade, UF e CEP. As praças do público-alvo não substituem esse endereço.
+
 ## Fluxo 2 — Criar conteúdo
 
 ### Inputs
@@ -152,6 +239,19 @@ Para planejamento, a integração upstream utiliza `/users/me`, `/clients/*`,
 `POST /campaigns/calculate`, `POST /survey/impacts/advanced`,
 `POST /campaigns/draft` e `PATCH /campaigns/:id`.
 
+## Stack e separação de responsabilidades
+
+| Camada | Tecnologias / função |
+|---|---|
+| Backend IA (`ai-api`) | Node.js 22, TypeScript, Fastify e validação com Zod |
+| Interface IA (`ai-web`) | React, TypeScript e Vite |
+| Persistência da IA | PostgreSQL próprio, migrations SQL e cliente `pg` |
+| Inteligência de linguagem | LLM configurado no servidor por `OPENAI_MODEL` |
+| Integração principal | APIs HTTP da plataforma Ummix, sem conexão direta ao seu banco |
+| Publicação | Render/Vercel para a demonstração; Docker/Nginx e compose como alternativa Portainer |
+
+O chatbot da Ummix não faz parte deste protótipo.
+
 ## Desenvolvimento
 
 Pré-requisitos: Node.js 22, npm e PostgreSQL 16.
@@ -172,7 +272,20 @@ npm.cmd test
 npm.cmd run build
 ```
 
-## Homologação no Portainer e gravação do protótipo
+## Preparação da demonstração
+
+Antes da gravação:
+
+- Usar usuário e cliente de homologação autorizados, sem expor dados pessoais.
+- Completar os dados cadastrais exigidos pelo contrato se houver passagem
+  para a etapa de pagamento.
+- Conferir banco, credenciais do modelo, token de integração e os dois
+  módulos habilitados na API e na interface.
+- Executar os dois fluxos com os mesmos dados que serão usados no vídeo;
+  revisar os filtros e valores antes de apresentar os resultados.
+- Deixar definido se a demonstração inclui e-mail real ou apenas persistência.
+
+### Alternativa de publicação no Portainer
 
 O guia [Reativação para o hackathon](docs/REACTIVACAO-HACKATHON-2026-10-24.md)
 contém o diagnóstico, a lista de arquivos alterados, variáveis por aplicação,
@@ -180,6 +293,7 @@ instruções de imagens/stack e roteiro de validação e gravação.
 
 Stack: [deploy/portainer/docker-compose.yml](deploy/portainer/docker-compose.yml).
 Variáveis: [deploy/portainer/.env.example](deploy/portainer/.env.example).
+Lista explicada por stack: [Variáveis de homologação](docs/PORTAINER-VARIAVEIS-HOMOLOGACAO.md).
 As URLs e credenciais devem ser preenchidas no ambiente; os domínios dos
 exemplos são sugestões que dependem da infraestrutura de homologação.
 
@@ -206,12 +320,16 @@ Defaults operacionais: sessões do assistente expiram em 120 minutos e aceitam
 20 mensagens a cada 10 minutos. Conteúdo permite até três reservas de geração
 por sessão; tentativas que falham também consomem essa contagem.
 
-## Deploy anterior no Render
+## Demonstração com Render e Vercel
 
 O `render.yaml` cria a API e um PostgreSQL temporário privado para homologação.
 Os secrets marcados com `sync: false` devem ser preenchidos no painel do Render.
 O serviço executa as migrations antes de iniciar a API e escuta a porta `10000`,
 que é a porta padrão dos web services do Render.
+
+O `ai-web` é publicado separadamente na Vercel. Os dois precisam usar URLs e
+flags coerentes entre si. Um banco recriado não recupera automaticamente as
+sessões e textos antigos da IA.
 
 A API utiliza `UMMIX_API_URL=https://ummix.workingtech.com.br/api` e mantém o
 `UMMIX_SERVICE_TOKEN` somente no ambiente do servidor. O frontend nunca recebe
@@ -221,13 +339,35 @@ esse token.
 
 O exemplo genérico e o Blueprint mantêm `CAMPAIGN_CONTENT_ENABLED=false` e
 envio de e-mail desligado por padrão. O perfil Portainer habilita os dois
-módulos explicitamente. A integração de contexto precisa existir e estar
+módulos explicitamente. Para demonstrar os dois no Render/Vercel, habilitar as
+flags correspondentes e conferir se uma sincronização do Blueprint não
+restaurou os valores genéricos. A integração de contexto precisa existir e estar
 habilitada no backend principal para a geração de conteúdo funcionar.
 
 Em produção, TLS no PostgreSQL continua habilitado por padrão. O perfil
 Portainer usa `DATABASE_SSL_ENABLED=false` exclusivamente para seu banco em
 uma rede Docker privada, sem publicar a porta 5432. Não aplique essa opção a
 um banco remoto exposto na internet.
+
+## Limites do protótipo e evidências de funcionamento
+
+- O fluxo é supervisionado e orquestrado pelo código; não há planejamento
+  autônomo de ferramentas nem publicação ou pagamento automático.
+- O reconhecimento de público depende do catálogo e da compatibilidade com
+  os filtros da plataforma. Deve ser verificado na revisão da campanha; não
+  se afirma reconhecimento perfeito de toda descrição em linguagem natural.
+- Os números de mídia são projeções e dimensionamento, não prova de entrega
+  real, vendas ou retorno financeiro.
+- O criador de conteúdo entrega texto, não áudio ou vídeo, e a estimativa de
+  duração não substitui uma leitura cronometrada e a revisão de produção.
+- O texto permanece no banco da IA vinculado por `campaignId`; não é gravado
+  automaticamente como material no backend principal.
+- Build, testes locais, deploy publicado e sondas de saúde são verificações
+  distintas. A apresentação deve mostrar apenas as etapas executadas e
+  conferidas no ambiente de homologação.
+
+Este README documenta o projeto e o roteiro de demonstração. Não certifica a
+inscrição no evento, um teste ponta a ponta aprovado ou a prontidão para produção.
 
 ## Contratos
 

@@ -88,6 +88,9 @@ Portainer com registry privado precisa de autenticação própria nesse registry
 
 ## 3. Configurar e publicar a stack da IA
 
+Lista completa por stack, com valores de build e credenciais a preencher:
+[`PORTAINER-VARIAVEIS-HOMOLOGACAO.md`](PORTAINER-VARIAVEIS-HOMOLOGACAO.md).
+
 Criar a stack `ummix-ai-homol` usando o compose e preencher as variáveis de
 [`../deploy/portainer/.env.example`](../deploy/portainer/.env.example).
 Os placeholders `SUBSTITUIR_...` não são credenciais utilizáveis.
@@ -204,8 +207,9 @@ Caminhos abaixo são relativos a `C:\Users\aryha\Documents\Ummix\plataforma`.
 
 | Arquivo de destino | Alteração |
 |---|---|
-| `ai-api/README.md` | Inputs, lógica, outputs, autenticação, limites e deploy |
+| `ai-api/README.md` | Apresentação do protótipo para o AKCIT Camp 2026, problema, roteiro de demonstração, inputs/lógica/outputs, autenticação, limites e opções de deploy |
 | `ai-api/docs/REACTIVACAO-HACKATHON-2026-10-24.md` | Este diagnóstico, operação e inventário |
+| `ai-api/docs/PORTAINER-VARIAVEIS-HOMOLOGACAO.md` | Lista de variáveis por stack, valores automáticos, build e instruções seguras para credenciais |
 | `ai-api/deploy/portainer/docker-compose.yml` | Stack independente API, web e banco |
 | `ai-api/deploy/portainer/.env.example` | Configuração pública sem credenciais reais |
 | `ai-api/.env.example` | Documenta o novo controle de TLS do banco |
